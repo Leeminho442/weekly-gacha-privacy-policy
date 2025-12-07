@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "664327874488",
+    "project_id": "weeklygacha-24683",
+    "storage_bucket": "weeklygacha-24683.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:664327874488:android:46edfb16f2ce799ca6d14d",
+        "android_client_info": {
+          "package_name": "com.mycompany.weeklygacha"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "664327874488-p0ho5uup3u8ck9cq4cd032c83k2ijjt4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mycompany.weeklygacha",
+            "certificate_hash": "9bbb3186b2189ef16d8f272bdab59362c395cbb4"
+          }
+        },
+        {
+          "client_id": "664327874488-kibd36jqh1e5fse8b3250u6geeebj2ef.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAx1PviR9m6olDQ3yVYpWQc7u2x9FbAP1k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "664327874488-kibd36jqh1e5fse8b3250u6geeebj2ef.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "664327874488-ukg4e1cpds6c4qj33dps5jlmhdmm3h9f.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.mycompany.weeklygacha"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
