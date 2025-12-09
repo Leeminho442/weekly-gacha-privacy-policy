@@ -206,11 +206,30 @@ class GachaService {
           return null; // 품절
         }
         
-        final serialNumber = currentSupply + 1;
+        // 글로벌 시리얼 넘버 카운터 조회 및 증가
+        final counterRef = _firestore.collection('global_counters').doc('card_serial_number');
+        final counterDoc = await transaction.get(counterRef);
         
-        // 재고 업데이트
+        int serialNumber;
+        if (counterDoc.exists) {
+          serialNumber = (counterDoc.data()?['value'] ?? 0) + 1;
+          transaction.update(counterRef, {
+            'value': serialNumber,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          // 카운터가 없으면 새로 생성 (초기값 1)
+          serialNumber = 1;
+          transaction.set(counterRef, {
+            'value': serialNumber,
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+        
+        // 재고 업데이트 (currentSupply는 카드별 발행 수량 관리용)
         transaction.update(stockRef, {
-          'currentSupply': serialNumber,
+          'currentSupply': currentSupply + 1,
           'updatedAt': FieldValue.serverTimestamp(),
         });
         

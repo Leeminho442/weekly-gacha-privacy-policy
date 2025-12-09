@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/card_model.dart';
 import '../models/card_data.dart';
 import '../services/season_service.dart';
@@ -6,6 +7,9 @@ import '../services/coupon_service.dart';
 import '../services/admin_service.dart';
 import '../services/gacha_service.dart';
 import '../models/coupon_model.dart';
+import '../utils/initialize_coupons.dart';
+import 'card_management_screen.dart';
+import 'admin_card_upload_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -24,7 +28,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   List<Season> _seasonHistory = [];
   List<Coupon> _allCoupons = [];
   List<OwnedCard> _allOwnedCards = [];
+  Map<String, int> _cardOwnerCount = {}; // 카드별 소유자 수 (cardId -> owner count)
   bool _isLoading = true;
+  
+  // \uce74\ub4dc \ub9c8\uc2a4\ud130 \ubaa9\ub85d \uc811\uae30/\ud3bc\uce58\uae30 \uc0c1\ud0dc (\uae30\ubcf8: \uc811\ud78c \uc0c1\ud0dc)
+  bool _isCardMasterListExpanded = false;
 
   @override
   void initState() {
@@ -39,15 +47,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final season = await _seasonService.getCurrentSeason();
       final stats = await _seasonService.getSeasonStats(season.seasonName);
       final history = await _seasonService.getSeasonHistory();
-      // TODO: 쿠폰 목록 조회 기능 구현
-      // final coupons = _couponService.getAllCoupons();
+      final coupons = await _couponService.getAllCoupons();
+      
+      // 카드별 소유자 수 계산
+      final cardOwnerCount = await _calculateCardOwnerCount();
       
       setState(() {
         _currentSeason = season;
         _currentStats = stats;
         _seasonHistory = history;
-        // _allCoupons = coupons;
-        _allCoupons = []; // 임시로 빈 리스트
+        _allCoupons = coupons;
+        _cardOwnerCount = cardOwnerCount;
         _isLoading = false;
       });
     } catch (e) {
@@ -60,101 +70,356 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
   
+  /// 카드별 소유자 수 계산 (Firestore collectionGroup 쿼리 사용)
+  Future<Map<String, int>> _calculateCardOwnerCount() async {
+    try {
+      final firestore = FirebaseFirestore.instance;
+      
+      // 전체 owned_cards 조회 (모든 사용자의 소유 카드)
+      final querySnapshot = await firestore
+          .collectionGroup('owned_cards')
+          .get();
+      
+      // cardId별로 고유 userId 집합 생성
+      final Map<String, Set<String>> cardOwners = {};
+      
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final cardId = data['cardId'] as String?;
+        final userId = data['userId'] as String?;
+        
+        if (cardId != null && userId != null) {
+          cardOwners.putIfAbsent(cardId, () => <String>{}).add(userId);
+        }
+      }
+      
+      // Set<String>을 int로 변환 (고유 소유자 수)
+      final Map<String, int> ownerCount = {};
+      cardOwners.forEach((cardId, owners) {
+        ownerCount[cardId] = owners.length;
+      });
+      
+      return ownerCount;
+    } catch (e) {
+      print('카드 소유자 수 계산 오류: $e');
+      return {};
+    }
+  }
+  
+  /// 안내 화면에 표시된 예시 쿠폰을 Firestore에 등록
+  Future<void> _initializeExampleCoupons() async {
+    // 확인 다이얼로그 표시
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('쿠폰 초기화'),
+          content: const Text(
+            '안내 화면에 표시된 예시 쿠폰 3개를\n'
+            'Firestore에 등록하시겠습니까?\n\n'
+            '• OPEN_EVENT (5티켓)\n'
+            '• WELCOME2025 (3티켓)\n'
+            '• LUCKY7 (7티켓)\n\n'
+            '⚠️ 기간 제한 없이 ID당 1회만 사용 가능합니다.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('취소'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('등록'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    // 로딩 표시
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('쿠폰 등록 중...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    try {
+      await initializeCouponsInFirestore();
+      
+      if (mounted) {
+        Navigator.of(context).pop(); // 로딩 다이얼로그 닫기
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ 쿠폰 3개가 성공적으로 등록되었습니다!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        
+        // 대시보드 데이터 새로고침
+        _loadDashboardData();
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // 로딩 다이얼로그 닫기
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ 쿠폰 등록 실패: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+  
   void _showAddCouponDialog() {
     final codeController = TextEditingController();
     final rewardController = TextEditingController(text: '5');
     final descriptionController = TextEditingController();
-    DateTime selectedDate = DateTime.now().add(const Duration(days: 30));
+    DateTime? selectedDate; // null = 기간 제한 없음
+    bool hasExpiration = false; // 기간 제한 여부
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('새 쿠폰 생성'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: codeController,
-                decoration: const InputDecoration(
-                  labelText: '쿠폰 코드',
-                  hintText: 'EVENT2025',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('새 쿠폰 생성'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: codeController,
+                  decoration: const InputDecoration(
+                    labelText: '쿠폰 코드',
+                    hintText: 'EVENT2025',
+                    helperText: '대문자와 숫자만 사용 가능',
+                  ),
+                  textCapitalization: TextCapitalization.characters,
                 ),
-                textCapitalization: TextCapitalization.characters,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: rewardController,
-                decoration: const InputDecoration(
-                  labelText: '보상 티켓 개수',
+                const SizedBox(height: 12),
+                TextField(
+                  controller: rewardController,
+                  decoration: const InputDecoration(
+                    labelText: '보상 티켓 개수',
+                    helperText: '사용자에게 지급할 티켓 수',
+                  ),
+                  keyboardType: TextInputType.number,
                 ),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: descriptionController,
-                decoration: const InputDecoration(
-                  labelText: '쿠폰 설명',
-                  hintText: '이벤트 설명',
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: '쿠폰 설명 (선택)',
+                    hintText: '이벤트 설명',
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                title: const Text('만료 날짜'),
-                subtitle: Text(
-                  '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  title: const Text('기간 제한 설정'),
+                  subtitle: Text(
+                    hasExpiration && selectedDate != null
+                        ? '만료: ${selectedDate!.year}-${selectedDate!.month.toString().padLeft(2, '0')}-${selectedDate!.day.toString().padLeft(2, '0')}'
+                        : '기간 제한 없음 (영구 사용 가능)',
+                  ),
+                  value: hasExpiration,
+                  contentPadding: EdgeInsets.zero,
+                  onChanged: (value) {
+                    setState(() {
+                      hasExpiration = value ?? false;
+                      if (hasExpiration) {
+                        selectedDate = DateTime.now().add(const Duration(days: 30));
+                      } else {
+                        selectedDate = null;
+                      }
+                    });
+                  },
                 ),
-                trailing: const Icon(Icons.calendar_today),
-                onTap: () async {
-                  final date = await showDatePicker(
-                    context: context,
-                    initialDate: selectedDate,
-                    firstDate: DateTime.now(),
-                    lastDate: DateTime.now().add(const Duration(days: 365)),
+                if (hasExpiration) ...[
+                  const SizedBox(height: 8),
+                  ListTile(
+                    title: const Text('만료 날짜 선택'),
+                    subtitle: Text(
+                      selectedDate != null
+                          ? '${selectedDate!.year}-${selectedDate!.month.toString().padLeft(2, '0')}-${selectedDate!.day.toString().padLeft(2, '0')}'
+                          : '날짜를 선택하세요',
+                    ),
+                    trailing: const Icon(Icons.calendar_today),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    onTap: () async {
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate ?? DateTime.now().add(const Duration(days: 30)),
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (date != null) {
+                        setState(() {
+                          selectedDate = date;
+                        });
+                      }
+                    },
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '⚠️ ID당 1회만 사용 가능',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (codeController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('쿠폰 코드를 입력하세요'),
+                      backgroundColor: Colors.red,
+                    ),
                   );
-                  if (date != null) {
-                    selectedDate = date;
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (codeController.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('쿠폰 코드를 입력하세요')),
-                );
-                return;
-              }
+                  return;
+                }
 
-              // TODO: 쿠폰 생성 기능 구현
-              final couponCode = codeController.text.toUpperCase();
-              final bonusTickets = int.tryParse(rewardController.text) ?? 5;
-              
-              await _couponService.createCoupon(
-                couponCode: couponCode,
-                bonusTickets: bonusTickets,
-                expiresAt: selectedDate,
-              );
-              
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('쿠폰이 생성되었습니다')),
+                final couponCode = codeController.text.trim().toUpperCase();
+                final bonusTickets = int.tryParse(rewardController.text) ?? 5;
+                
+                if (bonusTickets <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('티켓 개수는 1개 이상이어야 합니다'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                
+                // 로딩 표시
+                Navigator.pop(context); // 다이얼로그 닫기
+                
+                showDialog(
+                  context: this.context,
+                  barrierDismissible: false,
+                  builder: (context) => const Center(
+                    child: Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text('쿠폰 생성 중...'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 );
-                await _loadDashboardData();
-              }
-            },
-            child: const Text('생성'),
-          ),
-        ],
+                
+                try {
+                  final success = await _couponService.createCoupon(
+                    couponCode: couponCode,
+                    bonusTickets: bonusTickets,
+                    maxUses: 0, // 무제한 (ID당 1회로 제한됨)
+                    expiresAt: hasExpiration ? selectedDate : null,
+                  );
+                  
+                  if (mounted) {
+                    Navigator.pop(this.context); // 로딩 다이얼로그 닫기
+                    
+                    if (success) {
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(
+                          content: Text('✅ 쿠폰 "$couponCode"가 생성되었습니다!'),
+                          backgroundColor: Colors.green,
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                      await _loadDashboardData();
+                    } else {
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        const SnackBar(
+                          content: Text('❌ 쿠폰 생성 실패 (이미 존재하거나 오류 발생)'),
+                          backgroundColor: Colors.red,
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                    }
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    Navigator.pop(this.context); // 로딩 다이얼로그 닫기
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        content: Text('❌ 오류 발생: $e'),
+                        backgroundColor: Colors.red,
+                        duration: const Duration(seconds: 5),
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('생성'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -218,11 +483,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     _buildSeasonHistoryCard(),
                     const SizedBox(height: 16),
                     
+                    // 카드 관리 (주차별 교체)
+                    _buildCardManagementCard(),
+                    const SizedBox(height: 16),
+                    
                     // 카드 마스터 목록 (관리자용)
                     _buildCardMasterListCard(),
                     const SizedBox(height: 16),
                     
-                    // 쿠폰 관리
+                    // 쿠폰 관리 (등록/삭제)
                     _buildCouponManagementCard(),
                     const SizedBox(height: 16),
                     
@@ -232,6 +501,180 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ),
               ),
             ),
+    );
+  }
+  
+  Widget _buildCardManagementCard() {
+    return Card(
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '🎴 카드 관리',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.purple.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '주차별 카드 70종 교체 및 관리',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const AdminCardUploadScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.upload_file, size: 18),
+                        label: const Text('간편 업로드'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const CardManagementScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.settings, size: 18),
+                        label: const Text('카드 세트 관리'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.purple,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            
+            const Divider(height: 32),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '주차별로 카드 70종을 교체 관리할 수 있습니다',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.blue.shade800,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green.shade600, size: 18),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '기존 사용자의 보유 카드는 유지됩니다',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green.shade600, size: 18),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '새로운 카드 세트가 활성화되면 뽑기에 반영됩니다',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green.shade600, size: 18),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '이전 카드 세트는 히스토리로 보관됩니다',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
   
@@ -254,21 +697,42 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     color: Colors.purple.shade700,
                   ),
                 ),
-                ElevatedButton.icon(
-                  onPressed: _showAddCouponDialog,
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('새 쿠폰'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _initializeExampleCoupons,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('예시 쿠폰 등록'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: _showAddCouponDialog,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('새 쿠폰'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
@@ -313,43 +777,66 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            coupon.code,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isExpired
-                                  ? Colors.grey.shade300
-                                  : isActive
-                                      ? Colors.green.shade200
-                                      : Colors.orange.shade200,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                          Expanded(
                             child: Text(
-                              isExpired
-                                  ? '만료됨'
-                                  : isActive
-                                      ? '사용가능'
-                                      : '비활성',
-                              style: TextStyle(
-                                fontSize: 12,
+                              coupon.code,
+                              style: const TextStyle(
+                                fontSize: 18,
                                 fontWeight: FontWeight.bold,
-                                color: isExpired
-                                    ? Colors.grey.shade700
-                                    : isActive
-                                        ? Colors.green.shade700
-                                        : Colors.orange.shade700,
+                                fontFamily: 'monospace',
                               ),
                             ),
+                          ),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isExpired
+                                      ? Colors.grey.shade300
+                                      : isActive
+                                          ? Colors.green.shade200
+                                          : Colors.orange.shade200,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  isExpired
+                                      ? '만료됨'
+                                      : isActive
+                                          ? '사용가능'
+                                          : '비활성',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: isExpired
+                                        ? Colors.grey.shade700
+                                        : isActive
+                                            ? Colors.green.shade700
+                                            : Colors.orange.shade700,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                onPressed: () => _editCoupon(coupon),
+                                icon: const Icon(Icons.edit),
+                                color: Colors.blue.shade600,
+                                tooltip: '쿠폰 수정',
+                                constraints: const BoxConstraints(),
+                                padding: const EdgeInsets.all(8),
+                              ),
+                              IconButton(
+                                onPressed: () => _deleteCoupon(coupon.code),
+                                icon: const Icon(Icons.delete),
+                                color: Colors.red.shade600,
+                                tooltip: '쿠폰 삭제',
+                                constraints: const BoxConstraints(),
+                                padding: const EdgeInsets.all(8),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -399,6 +886,221 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+
+  
+  /// 쿠폰 수정
+  Future<void> _editCoupon(Coupon coupon) async {
+    // 수정 폼 컨트롤러 초기화
+    final codeController = TextEditingController(text: coupon.code);
+    final ticketController = TextEditingController(text: coupon.ticketReward.toString());
+    final descController = TextEditingController(text: coupon.description ?? '');
+    final maxUsesController = TextEditingController(text: '0');
+    DateTime selectedDate = coupon.expiresAt;
+    bool isActive = coupon.isActive;
+    
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('쿠폰 수정'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 쿠폰 코드 (수정 불가, 표시만)
+                TextField(
+                  controller: codeController,
+                  enabled: false,
+                  decoration: const InputDecoration(
+                    labelText: '쿠폰 코드 (변경 불가)',
+                    prefixIcon: Icon(Icons.code),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // 보상 티켓 수
+                TextField(
+                  controller: ticketController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: '보상 티켓 수',
+                    prefixIcon: Icon(Icons.card_giftcard),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // 설명
+                TextField(
+                  controller: descController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: '설명 (선택)',
+                    prefixIcon: Icon(Icons.description),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // 최대 사용 횟수
+                TextField(
+                  controller: maxUsesController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: '최대 사용 횟수 (0 = 무제한)',
+                    prefixIcon: Icon(Icons.people),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // 유효기간
+                ListTile(
+                  leading: const Icon(Icons.calendar_today),
+                  title: const Text('유효기간'),
+                  subtitle: Text(_formatDate(selectedDate)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.edit_calendar),
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (picked != null) {
+                        setState(() => selectedDate = picked);
+                      }
+                    },
+                  ),
+                  contentPadding: EdgeInsets.zero,
+                ),
+                
+                // 활성화 상태
+                SwitchListTile(
+                  title: const Text('활성화'),
+                  value: isActive,
+                  onChanged: (value) => setState(() => isActive = value),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('저장'),
+            ),
+          ],
+        ),
+      ),
+    );
+    
+    if (result != true) return;
+    
+    try {
+      final bonusTickets = int.tryParse(ticketController.text) ?? coupon.ticketReward;
+      final description = descController.text.trim();
+      final maxUses = int.tryParse(maxUsesController.text) ?? 0;
+      
+      // Firestore 쿠폰 업데이트
+      final success = await _couponService.updateCoupon(
+        couponCode: coupon.code,
+        bonusTickets: bonusTickets,
+        description: description.isNotEmpty ? description : null,
+        maxUses: maxUses,
+        expiresAt: selectedDate,
+        isActive: isActive,
+      );
+      
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('쿠폰 "${coupon.code}"이(가) 수정되었습니다.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          _loadDashboardData();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('쿠폰 수정에 실패했습니다.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('쿠폰 수정 오류: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+  
+  /// 쿠폰 삭제
+  Future<void> _deleteCoupon(String couponCode) async {
+    // 확인 다이얼로그
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('쿠폰 삭제'),
+        content: Text('쿠폰 "$couponCode"을(를) 정말 삭제하시겠습니까?\n\n이 작업은 취소할 수 없습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    try {
+      // Firestore에서 쿠폰 삭제
+      await _couponService.deleteCoupon(couponCode);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('쿠폰 "$couponCode"이(가) 삭제되었습니다.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        // 대시보드 데이터 새로고침
+        _loadDashboardData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('쿠폰 삭제 실패: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
   Widget _buildCurrentSeasonCard() {
     if (_currentSeason == null) return const SizedBox();
     
@@ -821,49 +1523,80 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '📋 카드 마스터 목록',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.purple.shade700,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue.shade300),
-                  ),
-                  child: Text(
-                    '전체 ${CardData.allCards.length}종',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.blue.shade700,
+            InkWell(
+              onTap: () {
+                setState(() {
+                  _isCardMasterListExpanded = !_isCardMasterListExpanded;
+                });
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '📋 카드 마스터 목록',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.purple.shade700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '클릭하여 \${_isCardMasterListExpanded ? "접기" : "펼치기"} • 시스템에 등록된 모든 카드를 확인할 수 있습니다',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 16),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue.shade300),
+                          ),
+                          child: Text(
+                            '전체 \${CardData.allCards.length}종',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blue.shade700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Icon(
+                          _isCardMasterListExpanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.keyboard_arrow_down,
+                          color: Colors.purple.shade700,
+                          size: 28,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '현재 시스템에 등록된 모든 카드 종류와 실물 이미지를 확인할 수 있습니다',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
               ),
             ),
-            const Divider(height: 24),
-            
-            ...CardRarity.values.map((rarity) {
+            if (_isCardMasterListExpanded) ...[const Divider(height: 24),
+              
+              ...CardRarity.values.map((rarity) {
               final cards = cardsByRarity[rarity] ?? [];
               if (cards.isEmpty) return const SizedBox();
               
@@ -1045,14 +1778,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     
-                                    // 카드 ID
+                                    // 카드 이미지 경로
                                     Text(
-                                      'ID: ${card.id}',
+                                      '이미지: ${card.imagePath}',
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: Colors.grey.shade600,
-                                        fontFamily: 'monospace',
                                       ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(height: 8),
                                     
@@ -1087,6 +1821,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                         ),
                                         const SizedBox(width: 12),
                                         Icon(
+                                          Icons.people,
+                                          size: 16,
+                                          color: Colors.blue.shade600,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          '소유자: ${_cardOwnerCount[card.id] ?? 0}명',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.blue.shade600,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(
                                           Icons.pie_chart,
                                           size: 16,
                                           color: Colors.green.shade600,
@@ -1117,11 +1870,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                       ),
                     );
-                  }),
-                  const SizedBox(height: 20),
-                ],
-              );
-            }),
+                    }),
+                    const SizedBox(height: 20),
+                  ],
+                );
+              }),
+            ],
           ],
         ),
       ),

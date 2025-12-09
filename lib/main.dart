@@ -8,6 +8,8 @@ import 'screens/collection_screen.dart';
 import 'screens/intro_screen.dart';
 import 'services/auth_service.dart';
 import 'services/gacha_service.dart';
+import 'services/audio_service.dart';
+import 'services/admob_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +24,22 @@ void main() async {
     debugPrint('✅ 카드 재고 초기화 완료 (70장)');
   } catch (e) {
     debugPrint('⚠️ 카드 재고 초기화 실패: $e');
+  }
+  
+  // 🎵 오디오 서비스 초기화
+  try {
+    await AudioService().initialize();
+    debugPrint('✅ 오디오 서비스 초기화 완료');
+  } catch (e) {
+    debugPrint('⚠️ 오디오 서비스 초기화 실패: $e');
+  }
+  
+  // 🎯 AdMob 초기화
+  try {
+    await AdMobService().initialize();
+    debugPrint('✅ AdMob 초기화 완료');
+  } catch (e) {
+    debugPrint('⚠️ AdMob 초기화 실패: $e');
   }
   
   runApp(const MyApp());

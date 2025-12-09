@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/auth_service.dart';
+import '../services/audio_service.dart';
 import '../main.dart';
 
 class IntroScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   bool _isLoggingIn = false;
+  final AudioService _audioService = AudioService();
 
   @override
   void initState() {
@@ -58,6 +60,16 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
     setState(() {
       _isLoggingIn = true;
     });
+    
+    // 🎵 사용자 인터랙션으로 즉시 BGM 시작 (웹 정책 준수)
+    // await 없이 즉시 실행하여 브라우저 차단 방지
+    _audioService.playBGM('main');
+    
+    // 🔊 버튼 클릭 효과음
+    _audioService.playSFX('button_click');
+    
+    // 짧은 지연으로 오디오 시작 보장
+    await Future.delayed(const Duration(milliseconds: 100));
 
     try {
       // 실제 Firebase 로그인 처리
@@ -74,6 +86,9 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
         return;
       }
 
+      // 🔊 로그인 성공 효과음
+      _audioService.playSFX('success');
+      
       // 로그인 성공 알림
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -330,17 +345,10 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
                                         : Row(
                                             mainAxisAlignment: MainAxisAlignment.center,
                                             children: [
-                                              Image.asset(
-                                                'assets/images/google_logo.png',
-                                                width: 24,
-                                                height: 24,
-                                                errorBuilder: (context, error, stackTrace) {
-                                                  return const Icon(
-                                                    Icons.g_mobiledata,
-                                                    size: 32,
-                                                    color: Colors.red,
-                                                  );
-                                                },
+                                              const Icon(
+                                                Icons.g_mobiledata,
+                                                size: 32,
+                                                color: Colors.red,
                                               ),
                                               const SizedBox(width: 12),
                                               Text(

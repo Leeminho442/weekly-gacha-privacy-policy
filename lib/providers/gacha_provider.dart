@@ -14,8 +14,12 @@ class GachaProvider with ChangeNotifier {
   Map<String, CardStock> _cardStocks = {};
   int _dailyPulls = 3;
   int _bonusTickets = 0; // 쿠폰/초대로 받은 보너스 티켓
+  int _dailyAdWatches = 0; // 오늘 시청한 광고 횟수
   DateTime? _lastResetDate;
+  DateTime? _lastAdResetDate;
   bool _isLoading = false;
+  
+  static const int maxDailyAdWatches = 5; // 일일 광고 시청 제한
   
   String? get currentUserId => _auth.currentUser?.uid;
 
@@ -25,6 +29,11 @@ class GachaProvider with ChangeNotifier {
   int get bonusTickets => _bonusTickets;
   int get totalPulls => _dailyPulls + _bonusTickets; // 총 사용 가능한 뽑기 수
   bool get isLoading => _isLoading;
+  
+  // 광고 시청 관련
+  int get dailyAdWatches => _dailyAdWatches;
+  int get remainingAdWatches => maxDailyAdWatches - _dailyAdWatches;
+  bool get canWatchAd => _dailyAdWatches < maxDailyAdWatches;
 
   GachaProvider() {
     _initialize();
@@ -94,10 +103,16 @@ class GachaProvider with ChangeNotifier {
         final data = userDoc.data()!;
         _dailyPulls = data['dailyPulls'] ?? 3;
         _bonusTickets = data['bonusTickets'] ?? 0;
+        _dailyAdWatches = data['dailyAdWatches'] ?? 0;
         
         final lastReset = data['lastResetDate'] as Timestamp?;
         if (lastReset != null) {
           _lastResetDate = lastReset.toDate();
+        }
+        
+        final lastAdReset = data['lastAdResetDate'] as Timestamp?;
+        if (lastAdReset != null) {
+          _lastAdResetDate = lastAdReset.toDate();
         }
       } else {
         // 신규 사용자 - 기본값
@@ -106,10 +121,12 @@ class GachaProvider with ChangeNotifier {
         }
         _dailyPulls = 3;
         _bonusTickets = 0;
+        _dailyAdWatches = 0;
       }
       
-      // Check if we need to reset daily pulls
+      // Check if we need to reset daily pulls and ad watches
       await _checkDailyReset();
+      await _checkAdReset();
       
       // Load owned cards
       if (kDebugMode) {
@@ -152,7 +169,11 @@ class GachaProvider with ChangeNotifier {
       await _firestore.collection('users').doc(userId).update({
         'dailyPulls': _dailyPulls,
         'bonusTickets': _bonusTickets,
+        'dailyAdWatches': _dailyAdWatches,
         'lastResetDate': FieldValue.serverTimestamp(),
+        'lastAdResetDate': _lastAdResetDate != null 
+            ? Timestamp.fromDate(_lastAdResetDate!) 
+            : FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
@@ -166,6 +187,16 @@ class GachaProvider with ChangeNotifier {
         now.difference(_lastResetDate!).inHours >= 24) {
       _dailyPulls = 3;
       _lastResetDate = now;
+      await _saveData(); // Firestore에 저장
+    }
+  }
+  
+  Future<void> _checkAdReset() async {
+    final now = DateTime.now();
+    if (_lastAdResetDate == null ||
+        now.difference(_lastAdResetDate!).inHours >= 24) {
+      _dailyAdWatches = 0;
+      _lastAdResetDate = now;
       await _saveData(); // Firestore에 저장
     }
   }
@@ -220,6 +251,21 @@ class GachaProvider with ChangeNotifier {
   /// 보너스 티켓 추가 (쿠폰/초대 보상)
   Future<void> addBonusTickets(int amount) async {
     _bonusTickets += amount;
+    await _saveData();
+    notifyListeners();
+  }
+  
+  /// 광고 시청 후 보상 처리
+  Future<void> rewardAdWatch() async {
+    if (!canWatchAd) {
+      throw Exception('오늘의 광고 시청 횟수를 모두 사용했습니다!');
+    }
+    
+    await _checkAdReset(); // 자정 넘었으면 리셋
+    
+    _dailyAdWatches++;
+    _bonusTickets++; // 광고 시청 시 보너스 티켓 1개 지급
+    
     await _saveData();
     notifyListeners();
   }
@@ -291,5 +337,42 @@ class GachaProvider with ChangeNotifier {
     
     await _gachaService.resetStock();
     await _initialize();
+  }
+  
+  // 특정 카드의 발행된 수량 조회 (보유자 수 근사값)
+  int getIssuedCardCount(String cardId) {
+    // Firestore의 currentSupply (실제 발행된 수량)를 반환
+    final stock = _cardStocks[cardId];
+    
+    if (stock != null) {
+      return stock.currentSupply; // 현재 발행된 수량
+    }
+    
+    // 재고 정보가 없는 경우 0 반환
+    return 0;
+  }
+  
+  // 로그아웃
+  Future<void> logout() async {
+    try {
+      await _auth.signOut();
+      
+      // 상태 초기화
+      _ownedCards = [];
+      _cardStocks = {};
+      _dailyPulls = 3;
+      _bonusTickets = 0;
+      _dailyAdWatches = 0;
+      _lastResetDate = null;
+      _lastAdResetDate = null;
+      _isLoading = false;
+      
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Logout error: $e');
+      }
+      rethrow;
+    }
   }
 }

@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../providers/gacha_provider.dart';
 import '../services/season_service.dart';
 import '../services/admin_service.dart';
+import '../services/admob_service.dart';
+import '../services/audio_service.dart';
 import 'card_pack_opening_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'admin_login_screen.dart';
@@ -370,7 +374,44 @@ class _GachaScreenState extends State<GachaScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const SizedBox(width: 40),
+                                  // 로그아웃 버튼 (왼쪽)
+                                  IconButton(
+                                    icon: const Icon(Icons.logout, color: Colors.white, size: 28),
+                                    onPressed: () async {
+                                      final shouldLogout = await showDialog<bool>(
+                                        context: context,
+                                        builder: (context) => AlertDialog(
+                                          title: const Text('로그아웃'),
+                                          content: const Text('정말 로그아웃하시겠습니까?'),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(context, false),
+                                              child: const Text('취소'),
+                                            ),
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(context, true),
+                                              child: const Text('로그아웃', style: TextStyle(color: Colors.red)),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      
+                                      if (shouldLogout == true && context.mounted) {
+                                        try {
+                                          await FirebaseAuth.instance.signOut();
+                                          if (context.mounted) {
+                                            Navigator.pushReplacementNamed(context, '/login');
+                                          }
+                                        } catch (e) {
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('로그아웃 실패: $e')),
+                                            );
+                                          }
+                                        }
+                                      }
+                                    },
+                                  ),
                                   Expanded(
                                     child: GestureDetector(
                                       onTap: _onLogoTap,
@@ -452,6 +493,52 @@ class _GachaScreenState extends State<GachaScreen> {
                                     ),
                                   );
                                 },
+                              ),
+                              const SizedBox(height: 10),
+                              // 오디오 토글 버튼 (BGM/SFX)
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.9),
+                                      borderRadius: BorderRadius.circular(15),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // BGM 토글
+                                        _buildAudioToggle(
+                                          icon: AudioService().bgmEnabled ? Icons.music_note : Icons.music_off,
+                                          label: 'BGM',
+                                          onTap: () {
+                                            setState(() {
+                                              AudioService().toggleBGM(!AudioService().bgmEnabled);
+                                            });
+                                          },
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Container(
+                                          width: 1,
+                                          height: 20,
+                                          color: Colors.purple.shade200,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        // SFX 토글
+                                        _buildAudioToggle(
+                                          icon: AudioService().sfxEnabled ? Icons.volume_up : Icons.volume_off,
+                                          label: 'SFX',
+                                          onTap: () {
+                                            setState(() {
+                                              AudioService().toggleSFX(!AudioService().sfxEnabled);
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 10),
                               Container(
@@ -762,34 +849,31 @@ class _GachaScreenState extends State<GachaScreen> {
                     ),
                   
                   // 하단 고정 배너 (Sticky Banner)
-                  Positioned(
+                  // 배너 광고 (하단)
+                  if (!kIsWeb) Positioned(
                     bottom: 0,
                     left: 0,
                     right: 0,
-                    child: Container(
-                      height: 60, // 50px 배너 + 10px 여백
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      child: Center(
-                        child: Container(
-                          width: 320,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade400,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: Colors.grey.shade600,
-                              width: 1,
-                            ),
-                          ),
-                          child: Center(
-                            child: Text(
-                              'Advertisement Area',
-                              style: TextStyle(
-                                color: Colors.grey.shade700,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
+                    child: _buildBannerAdWidget(),
+                  ),
+                  
+                  // 버전 정보 (광고 위)
+                  Positioned(
+                    bottom: kIsWeb ? 10 : 70, // 광고가 있으면 70px 위, 없으면 10px 위
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'v2.7.1 - 로그아웃/오디오 기능 복원',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 10,
                           ),
                         ),
                       ),
@@ -912,9 +996,186 @@ class _GachaScreenState extends State<GachaScreen> {
       return; // Web 플랫폼 처리 종료
     }
     
-    // TODO: Android/iOS 플랫폼용 실제 AdMob 광고 로직 추가
-    // AdService().showRewardedAd((reward) {
-    //   gachaProvider.addBonusTickets(reward);
-    // });
+    // Android/iOS: 실제 AdMob 보상형 광고 표시
+    final adMobService = AdMobService();
+    
+    if (!adMobService.isRewardedAdReady) {
+      // 광고 준비 안됨
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: const [
+                Icon(Icons.warning, color: Colors.white),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '광고를 불러오는 중입니다. 잠시 후 다시 시도해주세요.',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.orange.shade600,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+    
+    // 보상형 광고 표시
+    await adMobService.showRewardedAd(
+      onUserEarnedReward: () async {
+        // 보상 지급
+        await gachaProvider.addBonusTickets(1);
+      },
+      onAdDismissed: () {
+        // 광고 닫힘 처리
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '광고 시청 완료! 무료 뽑기 1회가 지급되었습니다.',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.green.shade600,
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+        }
+      },
+    );
+  }
+  
+  /// 오디오 토글 버튼 빌드
+  Widget _buildAudioToggle({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: Colors.purple.shade600,
+            size: 20,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.purple.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 배너 광고 위젯 빌드
+  Widget _buildBannerAdWidget() {
+    return const BannerAdWidget();
+  }
+}
+
+/// 배너 광고를 표시하는 별도 StatefulWidget
+class BannerAdWidget extends StatefulWidget {
+  const BannerAdWidget({super.key});
+
+  @override
+  State<BannerAdWidget> createState() => _BannerAdWidgetState();
+}
+
+class _BannerAdWidgetState extends State<BannerAdWidget> {
+  @override
+  void initState() {
+    super.initState();
+    // 1초마다 광고 로드 상태 체크 (최대 10번)
+    _checkAdLoadingStatus();
+  }
+
+  void _checkAdLoadingStatus() {
+    int checkCount = 0;
+    const maxChecks = 10;
+    
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 1));
+      checkCount++;
+      
+      if (mounted) {
+        setState(() {}); // UI 업데이트
+      }
+      
+      final adMobService = AdMobService();
+      // 광고가 로드되었거나 최대 체크 횟수 도달하면 중단
+      return !adMobService.isBannerAdReady && checkCount < maxChecks;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final adMobService = AdMobService();
+    
+    if (!adMobService.isBannerAdReady || adMobService.bannerAd == null) {
+      // 광고 로딩 중 또는 실패
+      return Container(
+        height: 60,
+        color: Colors.grey.shade900,
+        child: Center(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white.withValues(alpha: 0.5),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '광고 로딩 중...',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    // 광고 로드 완료
+    return Container(
+      height: 60,
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      color: Colors.grey.shade900,
+      child: Center(
+        child: SizedBox(
+          width: adMobService.bannerAd!.size.width.toDouble(),
+          height: adMobService.bannerAd!.size.height.toDouble(),
+          child: AdWidget(ad: adMobService.bannerAd!),
+        ),
+      ),
+    );
   }
 }

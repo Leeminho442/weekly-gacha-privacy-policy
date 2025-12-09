@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../models/coupon_model.dart';
 
 /// 쿠폰 사용 결과
 class CouponResult {
@@ -65,12 +66,13 @@ class CouponService {
           );
         }
 
-        if (expiresAt != null && expiresAt.toDate().isBefore(DateTime.now())) {
-          return CouponResult(
-            success: false,
-            message: '만료된 쿠폰입니다',
-          );
-        }
+        // ⚠️ 기간 체크 제거: 사용자 요구사항 - 기간 상관없이 ID당 1회만 사용 가능
+        // if (expiresAt != null && expiresAt.toDate().isBefore(DateTime.now())) {
+        //   return CouponResult(
+        //     success: false,
+        //     message: '만료된 쿠폰입니다',
+        //   );
+        // }
 
         if (maxUses > 0 && currentUses >= maxUses) {
           return CouponResult(
@@ -193,6 +195,90 @@ class CouponService {
     } catch (e) {
       print('쿠폰 생성 오류: $e');
       return false;
+    }
+  }
+  
+  /// 관리자용: 쿠폰 삭제
+  Future<bool> deleteCoupon(String couponCode) async {
+    try {
+      final couponRef = _firestore.collection('coupons').doc(couponCode.toUpperCase());
+      await couponRef.delete();
+      return true;
+    } catch (e) {
+      print('쿠폰 삭제 오류: $e');
+      return false;
+    }
+  }
+  
+  /// 관리자용: 쿠폰 수정 (코드는 변경 불가, 나머지 정보만 수정)
+  Future<bool> updateCoupon({
+    required String couponCode,
+    int? bonusTickets,
+    String? description,
+    int? maxUses,
+    DateTime? expiresAt,
+    bool? isActive,
+  }) async {
+    try {
+      final couponRef = _firestore.collection('coupons').doc(couponCode.toUpperCase());
+      
+      // 쿠폰 존재 확인
+      final couponDoc = await couponRef.get();
+      if (!couponDoc.exists) {
+        print('존재하지 않는 쿠폰입니다: $couponCode');
+        return false;
+      }
+      
+      // 업데이트할 필드만 포함
+      final Map<String, dynamic> updateData = {
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      
+      if (bonusTickets != null) {
+        updateData['bonusTickets'] = bonusTickets;
+      }
+      if (description != null) {
+        updateData['description'] = description;
+      }
+      if (maxUses != null) {
+        updateData['maxUses'] = maxUses;
+      }
+      if (expiresAt != null) {
+        updateData['expiresAt'] = Timestamp.fromDate(expiresAt);
+      }
+      if (isActive != null) {
+        updateData['isActive'] = isActive;
+      }
+      
+      await couponRef.update(updateData);
+      return true;
+    } catch (e) {
+      print('쿠폰 수정 오류: $e');
+      return false;
+    }
+  }
+  
+  /// 관리자용: 모든 쿠폰 조회
+  Future<List<Coupon>> getAllCoupons() async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('coupons')
+          .orderBy('createdAt', descending: true)
+          .get();
+      
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        return Coupon(
+          code: data['couponCode'] ?? doc.id,
+          ticketReward: data['bonusTickets'] ?? 0,
+          description: data['description'],
+          expiresAt: (data['expiresAt'] as Timestamp?)?.toDate() ?? DateTime.now().add(const Duration(days: 365)),
+          isActive: data['isActive'] ?? true,
+        );
+      }).toList();
+    } catch (e) {
+      print('쿠폰 목록 조회 오류: $e');
+      return [];
     }
   }
 }

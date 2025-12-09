@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/coupon_service.dart';
 import '../providers/gacha_provider.dart';
 
@@ -29,6 +30,8 @@ class _CouponScreenState extends State<CouponScreen> {
       return;
     }
 
+    if (!mounted) return;
+    
     setState(() {
       _isLoading = true;
     });
@@ -36,22 +39,32 @@ class _CouponScreenState extends State<CouponScreen> {
     try {
       final result = await _couponService.redeemCoupon(code);
       
+      if (!mounted) return;
+      
       if (result.success) {
-        // Provider 데이터 새로고침
-        final gachaProvider = Provider.of<GachaProvider>(context, listen: false);
-        await gachaProvider.refreshUserData();
+        // Provider 데이터 새로고침 (context 사용 전 mounted 체크)
+        try {
+          final gachaProvider = Provider.of<GachaProvider>(context, listen: false);
+          await gachaProvider.refreshUserData();
+        } catch (providerError) {
+          debugPrint('⚠️ Provider 새로고침 실패 (무시): $providerError');
+        }
         
+        if (!mounted) return;
         _couponController.clear();
         _showMessage(result.message, isError: false);
       } else {
         _showMessage(result.message, isError: true);
       }
     } catch (e) {
+      if (!mounted) return;
       _showMessage('쿠폰 처리 중 오류가 발생했습니다.', isError: true);
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -234,83 +247,187 @@ class _CouponScreenState extends State<CouponScreen> {
   }
 
   Widget _buildExampleCoupons() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _couponService.getUserCouponHistory(),
+      builder: (context, snapshot) {
+        // 사용된 쿠폰 코드 목록
+        final usedCoupons = snapshot.data?.map((e) => e['couponCode'] as String).toSet() ?? {};
+        
+        // 전체 쿠폰 목록
+        final allCoupons = [
+          {'code': 'OPEN_EVENT', 'description': '오픈 기념 이벤트', 'reward': 5},
+          {'code': 'WELCOME2025', 'description': '신규 유저 환영 쿠폰', 'reward': 3},
+          {'code': 'LUCKY7', 'description': '행운의 7 이벤트', 'reward': 7},
+        ];
+        
+        // 아직 사용하지 않은 쿠폰만 필터링
+        final availableCoupons = allCoupons.where((coupon) => !usedCoupons.contains(coupon['code'])).toList();
+        
+        if (availableCoupons.isEmpty) {
+          return const SizedBox.shrink(); // 사용 가능한 쿠폰이 없으면 표시 안 함
+        }
+        
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                '사용 가능한 쿠폰 예시',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue.shade700,
-                ),
+              Row(
+                children: [
+                  Icon(Icons.card_giftcard, color: Colors.blue.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    '클릭하여 쿠폰 사용하기',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue.shade700,
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 12),
+              ...availableCoupons.asMap().entries.map((entry) {
+                final index = entry.key;
+                final coupon = entry.value;
+                return Column(
+                  children: [
+                    if (index > 0) const Divider(height: 16),
+                    _buildExampleCouponItem(
+                      coupon['code'] as String,
+                      coupon['description'] as String,
+                      coupon['reward'] as int,
+                    ),
+                  ],
+                );
+              }),
             ],
           ),
-          const SizedBox(height: 12),
-          _buildExampleCouponItem('OPEN_EVENT', '오픈 기념 이벤트', 5),
-          const Divider(height: 16),
-          _buildExampleCouponItem('WELCOME2025', '신규 유저 환영 쿠폰', 3),
-          const Divider(height: 16),
-          _buildExampleCouponItem('LUCKY7', '행운의 7 이벤트', 7),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _buildExampleCouponItem(String code, String description, int reward) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                code,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                description,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-            ],
-          ),
+    return InkWell(
+      onTap: () => _useExampleCoupon(code),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.purple.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.purple.shade200, width: 1.5),
         ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.purple.shade100,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            '+$reward 티켓',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: Colors.purple.shade700,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.touch_app, color: Colors.purple.shade700, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        code,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                          color: Colors.purple.shade900,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    description,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.purple.shade600,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '+$reward 티켓',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
+  }
+
+  /// 예시 쿠폰 즉시 사용
+  Future<void> _useExampleCoupon(String code) async {
+    debugPrint('🔵 [쿠폰 사용] $code 클릭됨');
+    
+    if (!mounted) return;
+    
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      debugPrint('  ↳ CouponService.redeemCoupon() 호출 중...');
+      final result = await _couponService.redeemCoupon(code);
+      debugPrint('  ↳ 결과: ${result.success ? "성공" : "실패"} - ${result.message}');
+      
+      if (!mounted) return;
+      
+      if (result.success) {
+        debugPrint('  ✅ 쿠폰 사용 성공! +${result.bonusTickets} 티켓');
+        
+        // Provider 데이터 새로고침 (context 사용 전 mounted 체크)
+        try {
+          debugPrint('  ↳ GachaProvider 데이터 새로고침 중...');
+          final gachaProvider = Provider.of<GachaProvider>(context, listen: false);
+          await gachaProvider.refreshUserData();
+          debugPrint('  ✅ Provider 새로고침 완료');
+        } catch (providerError) {
+          debugPrint('⚠️ Provider 새로고침 실패 (무시): $providerError');
+        }
+        
+        if (!mounted) return;
+        _showMessage(result.message, isError: false);
+        
+        // UI 새로고침 (사용된 쿠폰 제거)
+        setState(() {});
+        debugPrint('  ✅ UI 새로고침 완료 (사용된 쿠폰 제거)');
+      } else {
+        debugPrint('  ❌ 쿠폰 사용 실패: ${result.message}');
+        _showMessage(result.message, isError: true);
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ [쿠폰 사용] 예외 발생: $e');
+      debugPrint('❌ [쿠폰 사용] 스택 트레이스: $stackTrace');
+      if (!mounted) return;
+      _showMessage('쿠폰 처리 중 오류가 발생했습니다.\n\n오류: $e\n\n💡 F12 콘솔 확인', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   Widget _buildUsedCoupons() {
@@ -378,4 +495,6 @@ class _CouponScreenState extends State<CouponScreen> {
       },
     );
   }
+
+
 }

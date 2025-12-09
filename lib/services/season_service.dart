@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/card_model.dart';
 import '../models/card_data.dart';
 
@@ -164,44 +165,75 @@ class SeasonService {
 
   /// 시즌 통계 조회
   Future<SeasonStats> getSeasonStats(String seasonName) async {
-    final prefs = await SharedPreferences.getInstance();
-    final ownedCardsData = prefs.getStringList('owned_cards') ?? [];
+    final firestore = FirebaseFirestore.instance;
     
-    // 참여자 수 계산 (실제로는 고유 user_id 기준)
-    final uniqueUsers = <String>{};
-    int totalIssued = 0;
-    final rarityCount = <CardRarity, int>{
-      CardRarity.normal: 0,
-      CardRarity.rare: 0,
-      CardRarity.superRare: 0,
-      CardRarity.ultraRare: 0,
-      CardRarity.secret: 0,
-    };
-    
-    for (final data in ownedCardsData) {
-      final parts = data.split('|');
-      if (parts.length >= 3) {
+    try {
+      // Firestore에서 모든 owned_cards 가져오기 (collectionGroup 사용)
+      final ownedCardsSnapshot = await firestore
+          .collectionGroup('owned_cards')
+          .get();
+      
+      // 고유 사용자 ID 수집
+      final uniqueUsers = <String>{};
+      int totalIssued = 0;
+      final rarityCount = <CardRarity, int>{
+        CardRarity.normal: 0,
+        CardRarity.rare: 0,
+        CardRarity.superRare: 0,
+        CardRarity.ultraRare: 0,
+        CardRarity.secret: 0,
+      };
+      
+      for (final doc in ownedCardsSnapshot.docs) {
         totalIssued++;
-        uniqueUsers.add('user_001'); // Mock user ID
+        
+        // 문서 경로에서 userId 추출: 'users/{userId}/owned_cards/{cardId}'
+        final pathSegments = doc.reference.path.split('/');
+        if (pathSegments.length >= 2 && pathSegments[0] == 'users') {
+          final userId = pathSegments[1];
+          uniqueUsers.add(userId);
+        }
         
         // 등급 카운트
-        final cardId = parts[0];
-        final card = CardData.getCardById(cardId);
-        if (card != null) {
-          rarityCount[card.rarity] = (rarityCount[card.rarity] ?? 0) + 1;
+        final data = doc.data();
+        final cardId = data['cardId'] as String?;
+        if (cardId != null) {
+          final card = CardData.getCardById(cardId);
+          if (card != null) {
+            rarityCount[card.rarity] = (rarityCount[card.rarity] ?? 0) + 1;
+          }
         }
       }
+      
+      final season = await getCurrentSeason();
+      
+      return SeasonStats(
+        seasonName: seasonName,
+        totalCardsIssued: totalIssued,
+        totalSupply: season.totalSupply,
+        uniqueParticipants: uniqueUsers.length,
+        rarityDistribution: rarityCount,
+      );
+      
+    } catch (e) {
+      print('시즌 통계 조회 오류: $e');
+      
+      // 오류 발생 시 기본값 반환
+      final season = await getCurrentSeason();
+      return SeasonStats(
+        seasonName: seasonName,
+        totalCardsIssued: 0,
+        totalSupply: season.totalSupply,
+        uniqueParticipants: 0,
+        rarityDistribution: {
+          CardRarity.normal: 0,
+          CardRarity.rare: 0,
+          CardRarity.superRare: 0,
+          CardRarity.ultraRare: 0,
+          CardRarity.secret: 0,
+        },
+      );
     }
-    
-    final season = await getCurrentSeason();
-    
-    return SeasonStats(
-      seasonName: seasonName,
-      totalCardsIssued: totalIssued,
-      totalSupply: season.totalSupply,
-      uniqueParticipants: uniqueUsers.length,
-      rarityDistribution: rarityCount,
-    );
   }
 
   /// 모든 시즌 히스토리 조회
