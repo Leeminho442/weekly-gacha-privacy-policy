@@ -14,7 +14,10 @@ class AuthService {
   static const String _loginProviderKey = 'login_provider';
   
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    // ✅ CRITICAL: Use Web client ID (Type 3) for serverClientId
+    serverClientId: '664327874488-kibd36jqh1e5fse8b3250u6geeebj2ef.apps.googleusercontent.com',
+  );
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   // 싱글톤 패턴
