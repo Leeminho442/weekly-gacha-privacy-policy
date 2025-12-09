@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import '../services/ai_card_generation_service.dart';
+import '../services/ai_image_generator.dart';
+import 'generation_progress_screen.dart';
+import 'preview_approval_screen.dart';
+import 'concept_export_screen.dart';
 
 /// 🎴 AI 카드 생성 마법사
 /// 
@@ -14,7 +18,7 @@ class AICardWizardScreen extends StatefulWidget {
 class _AICardWizardScreenState extends State<AICardWizardScreen> {
   final AICardGenerationService _aiService = AICardGenerationService();
   
-  // 현재 단계 (1: 모드 선택, 2: 테마 선택, 3: 스타일 선택, 4: 확인 및 생성)
+  // 현재 단계 (1: 모드, 2: 테마, 3: 스타일, 4: 생성옵션, 5: 확인)
   int _currentStep = 1;
   
   // 선택된 옵션들
@@ -22,6 +26,9 @@ class _AICardWizardScreenState extends State<AICardWizardScreen> {
   String? _selectedThemeKey;
   CardStyle? _selectedStyle;
   String? _customTheme;
+  
+  // 생성 옵션 (1: 완전자동, 2: 미리보기+승인, 3: 컨셉만)
+  int? _selectedGenerationOption;
   
   // 진화 시스템용 커스텀 크리처 이름
   final List<TextEditingController> _creatureControllers = [];
@@ -93,7 +100,9 @@ class _AICardWizardScreenState extends State<AICardWizardScreen> {
           _buildStepLine(2),
           _buildStepDot(3, '스타일'),
           _buildStepLine(3),
-          _buildStepDot(4, '확인'),
+          _buildStepDot(4, '생성옵션'),
+          _buildStepLine(4),
+          _buildStepDot(5, '확인'),
         ],
       ),
     );
@@ -162,6 +171,8 @@ class _AICardWizardScreenState extends State<AICardWizardScreen> {
       case 3:
         return _buildStyleSelectionStep();
       case 4:
+        return _buildGenerationOptionStep();
+      case 5:
         return _buildConfirmationStep();
       default:
         return const Center(child: Text('알 수 없는 단계'));
@@ -743,7 +754,341 @@ class _AICardWizardScreenState extends State<AICardWizardScreen> {
     );
   }
 
-  /// 단계 4: 확인 및 생성
+  /// 단계 4: 생성 옵션 선택
+  Widget _buildGenerationOptionStep() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '어떤 방식으로 생성하시겠습니까?',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '생성 후 편집 가능 여부를 선택하세요',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 32),
+          
+          // 옵션 1: 완전 자동
+          _buildGenerationOptionCard(
+            option: 1,
+            emoji: '⚡',
+            title: '완전 자동 생성',
+            subtitle: '클릭 한 번으로 완성',
+            description: 'AI가 70장을 자동으로 생성하고 Firebase에 업로드합니다.\n'
+                '생성 완료 즉시 앱에 반영됩니다.',
+            pros: [
+              '가장 빠르고 편리함',
+              '관리자 개입 불필요',
+              '30-40분 소요',
+            ],
+            cons: [
+              '생성 전 미리보기 불가',
+              '개별 편집 불가 (재생성만 가능)',
+            ],
+            color: Colors.green,
+            cost: '\$2.80',
+            time: '30-40분',
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // 옵션 2: 미리보기 + 승인
+          _buildGenerationOptionCard(
+            option: 2,
+            emoji: '🎨',
+            title: '미리보기 + 승인 시스템',
+            subtitle: '확인 후 승인 (추천)',
+            description: '70장 생성 후 미리보기 화면에서 확인합니다.\n'
+                '마음에 안 드는 카드는 개별 재생성 가능합니다.',
+            pros: [
+              '생성 후 수정 가능',
+              '개별 카드 재생성',
+              '완벽한 품질 관리',
+            ],
+            cons: [
+              '70장 확인 필요',
+              '시간 더 소요 (승인 시간)',
+            ],
+            color: Colors.blue,
+            cost: '\$2.80 + α',
+            time: '40-60분',
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // 옵션 3: 컨셉만 생성
+          _buildGenerationOptionCard(
+            option: 3,
+            emoji: '📝',
+            title: '컨셉만 생성',
+            subtitle: '이름/설명만 AI 생성',
+            description: 'AI가 카드 이름과 설명만 70개 생성합니다.\n'
+                '이미지는 외부 AI나 "간편 업로드"로 직접 등록하세요.',
+            pros: [
+              '무료 (외부 AI 사용)',
+              '완벽한 수동 컨트롤',
+              '원하는 AI 선택 가능',
+            ],
+            cons: [
+              '이미지 수동 생성 필요',
+              '시간 많이 소요',
+            ],
+            color: Colors.orange,
+            cost: '무료',
+            time: '즉시 (컨셉 생성)',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGenerationOptionCard({
+    required int option,
+    required String emoji,
+    required String title,
+    required String subtitle,
+    required String description,
+    required List<String> pros,
+    required List<String> cons,
+    required Color color,
+    required String cost,
+    required String time,
+  }) {
+    final isSelected = _selectedGenerationOption == option;
+    
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedGenerationOption = option;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? color : Colors.grey.shade300,
+            width: isSelected ? 3 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.3),
+                    offset: const Offset(0, 4),
+                    blurRadius: 12,
+                  ),
+                ]
+              : [],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(emoji, style: const TextStyle(fontSize: 40)),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isSelected ? color : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isSelected)
+                  Icon(Icons.check_circle, color: color, size: 28),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              description,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade700,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // 장점
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green.shade700, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        '장점',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green.shade800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ...pros.map((pro) => Padding(
+                        padding: const EdgeInsets.only(left: 8, top: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.arrow_right, size: 14, color: Colors.green.shade700),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                pro,
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 8),
+            
+            // 단점
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.warning_amber, color: Colors.orange.shade700, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        '단점',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange.shade800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ...cons.map((con) => Padding(
+                        padding: const EdgeInsets.only(left: 8, top: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.arrow_right, size: 14, color: Colors.orange.shade700),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                con,
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 12),
+            
+            // 비용 및 시간
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.attach_money, size: 16, color: Colors.grey.shade700),
+                        const SizedBox(width: 4),
+                        Text(
+                          cost,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey.shade800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.access_time, size: 16, color: Colors.grey.shade700),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            time,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey.shade800,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 단계 5: 확인 및 생성
   Widget _buildConfirmationStep() {
     // 비용 계산
     const costPerCard = 0.04; // 고품질 기준
@@ -788,11 +1133,13 @@ class _AICardWizardScreenState extends State<AICardWizardScreen> {
                 const Divider(height: 24),
                 _buildSummaryRow('아트 스타일', _getStyleName()),
                 const Divider(height: 24),
+                _buildSummaryRow('생성 옵션', _getGenerationOptionName()),
+                const Divider(height: 24),
                 _buildSummaryRow('생성 카드 수', '70장'),
                 const Divider(height: 24),
-                _buildSummaryRow('예상 비용', '\$${totalCost.toStringAsFixed(2)} (~₩${(totalCost * 1320).toStringAsFixed(0)})'),
+                _buildSummaryRow('예상 비용', _getEstimatedCost()),
                 const Divider(height: 24),
-                _buildSummaryRow('예상 소요 시간', '30-40분'),
+                _buildSummaryRow('예상 소요 시간', _getEstimatedTime()),
               ],
             ),
           ),
@@ -913,6 +1260,45 @@ class _AICardWizardScreenState extends State<AICardWizardScreen> {
     }
   }
 
+  String _getGenerationOptionName() {
+    switch (_selectedGenerationOption) {
+      case 1:
+        return '완전 자동 생성';
+      case 2:
+        return '미리보기 + 승인';
+      case 3:
+        return '컨셉만 생성';
+      default:
+        return '미선택';
+    }
+  }
+
+  String _getEstimatedCost() {
+    switch (_selectedGenerationOption) {
+      case 1:
+        return '\$2.80 (~₩3,700)';
+      case 2:
+        return '\$2.80 + α (~₩3,700+)';
+      case 3:
+        return '무료';
+      default:
+        return '\$2.80 (~₩3,700)';
+    }
+  }
+
+  String _getEstimatedTime() {
+    switch (_selectedGenerationOption) {
+      case 1:
+        return '30-40분';
+      case 2:
+        return '40-60분';
+      case 3:
+        return '즉시 (컨셉 생성)';
+      default:
+        return '30-40분';
+    }
+  }
+
   /// 하단 네비게이션 바
   Widget _buildBottomNavigationBar() {
     return Container(
@@ -948,14 +1334,14 @@ class _AICardWizardScreenState extends State<AICardWizardScreen> {
           Expanded(
             child: ElevatedButton.icon(
               onPressed: _canProceed() ? () {
-                if (_currentStep < 4) {
+                if (_currentStep < 5) {
                   setState(() {
                     _currentStep++;
                   });
                 }
               } : null,
-              icon: Icon(_currentStep == 4 ? Icons.check : Icons.arrow_forward),
-              label: Text(_currentStep == 4 ? '완료' : '다음'),
+              icon: Icon(_currentStep == 5 ? Icons.check : Icons.arrow_forward),
+              label: Text(_currentStep == 5 ? '완료' : '다음'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.deepPurple,
                 foregroundColor: Colors.white,
@@ -981,47 +1367,244 @@ class _AICardWizardScreenState extends State<AICardWizardScreen> {
       case 3:
         return _selectedStyle != null;
       case 4:
+        return _selectedGenerationOption != null;
+      case 5:
         return true;
       default:
         return false;
     }
   }
 
-  /// AI 카드 생성 시작
-  void _startGeneration() {
-    // TODO: 실제 AI 생성 로직 구현
-    // 1. image_generation tool 호출
-    // 2. Firebase Storage에 업로드
-    // 3. Firestore에 카드 데이터 저장
-    // 4. 진행 상황 표시
+  /// AI 카드 생성 시작 (데모 모드)
+  Future<void> _startGeneration() async {
+    final generator = AIImageGenerator();
     
+    // 선택된 옵션에 따라 다른 처리
+    switch (_selectedGenerationOption) {
+      case 1:
+        await _startOption1FullyAutomatic(generator);
+        break;
+      case 2:
+        await _startOption2WithPreview(generator);
+        break;
+      case 3:
+        await _startOption3ConceptOnly(generator);
+        break;
+      default:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('생성 옵션을 선택해주세요')),
+        );
+    }
+  }
+
+  /// 옵션 1: 완전 자동 생성 (데모)
+  Future<void> _startOption1FullyAutomatic(AIImageGenerator generator) async {
+    int current = 0;
+    int total = 70;
+    String status = '카드 컨셉 생성 중...';
+
+    // 진행률 화면 표시
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('🎴 카드 생성 중...'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return GenerationProgressScreen(
+            current: current,
+            total: total,
+            status: status,
+            progress: current / total,
+          );
+        },
+      ),
+    );
+
+    // 시뮬레이션: 70장 생성
+    for (int i = 0; i < 70; i++) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      current = i + 1;
+      status = '카드 ${i + 1}/70 생성 중...';
+      
+      // 진행률 업데이트 (StatefulBuilder 사용)
+      if (mounted) {
+        // 다이얼로그 재빌드
+        Navigator.pop(context);
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => GenerationProgressScreen(
+            current: current,
+            total: total,
+            status: status,
+            progress: current / total,
+          ),
+        );
+      }
+    }
+
+    // 완료
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (mounted) {
+      Navigator.pop(context); // 진행률 다이얼로그 닫기
+
+      // 완료 다이얼로그
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('✅ 생성 완료!'),
+          content: const Text(
+            '70장의 카드가 자동으로 생성되고\n'
+            'Firebase에 업로드되었습니다.\n\n'
+            '앱을 재시작하면 새 카드가 반영됩니다.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context); // 완료 다이얼로그
+                Navigator.pop(context); // 마법사 화면
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  /// 옵션 2: 미리보기 + 승인 (데모)
+  Future<void> _startOption2WithPreview(AIImageGenerator generator) async {
+    int current = 0;
+    int total = 70;
+    String status = '카드 컨셉 생성 중...';
+
+    // 진행률 화면 표시
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => GenerationProgressScreen(
+        current: current,
+        total: total,
+        status: status,
+        progress: current / total,
+      ),
+    );
+
+    // 시뮬레이션: 70장 생성
+    final result = await generator.generateWithPreview(
+      mode: _selectedMode!,
+      theme: _getThemeName(),
+      style: _selectedStyle!,
+      onProgress: (curr, tot, stat) {
+        current = curr;
+        total = tot;
+        status = stat;
+        
+        // 진행률 업데이트
+        if (mounted) {
+          Navigator.pop(context);
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => GenerationProgressScreen(
+              current: current,
+              total: total,
+              status: status,
+              progress: current / total,
+            ),
+          );
+        }
+      },
+    );
+
+    if (mounted) {
+      Navigator.pop(context); // 진행률 다이얼로그 닫기
+
+      if (result.success) {
+        // 미리보기 화면으로 이동
+        final approved = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PreviewApprovalScreen(cards: result.cards),
+          ),
+        );
+
+        if (approved == true && mounted) {
+          // 승인 완료
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('✅ 승인 완료!'),
+              content: const Text(
+                '선택한 카드가 Firebase에 업로드되었습니다.\n\n'
+                '앱을 재시작하면 새 카드가 반영됩니다.',
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context); // 완료 다이얼로그
+                    Navigator.pop(context); // 마법사 화면
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('확인'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  /// 옵션 3: 컨셉만 생성 (데모)
+  Future<void> _startOption3ConceptOnly(AIImageGenerator generator) async {
+    // 로딩 표시
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        title: Text('📝 컨셉 생성 중...'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            Text(
-              'AI가 70장의 카드를 생성하고 있습니다.\n'
-              '약 30-40분 소요됩니다.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade700),
-            ),
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('70개 카드 컨셉을 생성하고 있습니다...'),
           ],
         ),
       ),
     );
-    
-    // TODO: 실제 구현 시 여기서 AI 생성 호출
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('🚧 AI 카드 생성 기능은 현재 구현 중입니다'),
-        backgroundColor: Colors.orange,
-      ),
+
+    // 시뮬레이션: 컨셉 생성
+    final result = await generator.generateConceptsOnly(
+      mode: _selectedMode!,
+      theme: _getThemeName(),
+      style: _selectedStyle!,
     );
+
+    if (mounted) {
+      Navigator.pop(context); // 로딩 다이얼로그 닫기
+
+      if (result.success) {
+        // 컨셉 내보내기 화면으로 이동
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ConceptExportScreen(concepts: result.concepts),
+          ),
+        );
+
+        if (mounted) {
+          Navigator.pop(context); // 마법사 화면 닫기
+        }
+      }
+    }
   }
 }
