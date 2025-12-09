@@ -22,5 +22,17 @@ Thumbs.db
 *.tmp
 *.temp
 
+# 🔒 Security: Firebase Admin SDK Keys (NEVER COMMIT THESE!)
+*firebase-admin-sdk*.json
+*serviceAccountKey*.json
+service-account-key.json
+firebase-adminsdk*.json
+
+# Environment files with secrets
+.env
+.env.local
+scripts/ai_generation/.env
+scripts/ai_generation/*.json
+
 # Keep lib/ directory for source code!
 
