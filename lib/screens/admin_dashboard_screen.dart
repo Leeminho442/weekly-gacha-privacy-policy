@@ -10,6 +10,7 @@ import '../models/coupon_model.dart';
 import '../utils/initialize_coupons.dart';
 import 'card_management_screen.dart';
 import 'admin_card_upload_screen.dart';
+import 'ai_card_wizard_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -539,6 +540,41 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            
+            // 🎴 AI 카드 생성 마법사 (NEW!)
+            SizedBox(
+              width: double.infinity,
+              height: 60,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const AICardWizardScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.auto_awesome, size: 24),
+                label: const Text(
+                  '🎴 AI 카드 생성 마법사',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 4,
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
             Row(
               children: [
                 Expanded(
