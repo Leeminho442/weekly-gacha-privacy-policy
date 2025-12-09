@@ -868,7 +868,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               size: 16, color: Colors.grey.shade600),
                           const SizedBox(width: 4),
                           Text(
-                            '만료: ${coupon.expiresAt.year}-${coupon.expiresAt.month.toString().padLeft(2, '0')}-${coupon.expiresAt.day.toString().padLeft(2, '0')}',
+                            coupon.expiresAt != null
+                                ? '만료: ${coupon.expiresAt!.year}-${coupon.expiresAt!.month.toString().padLeft(2, '0')}-${coupon.expiresAt!.day.toString().padLeft(2, '0')}'
+                                : '만료: 무기한',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey.shade600,
@@ -895,7 +897,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final ticketController = TextEditingController(text: coupon.ticketReward.toString());
     final descController = TextEditingController(text: coupon.description ?? '');
     final maxUsesController = TextEditingController(text: '0');
-    DateTime selectedDate = coupon.expiresAt;
+    DateTime selectedDate = coupon.expiresAt ?? DateTime.now().add(const Duration(days: 30));
+    bool hasExpiration = coupon.expiresAt != null;
     bool isActive = coupon.isActive;
     
     final result = await showDialog<bool>(
@@ -951,27 +954,43 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ),
                 const SizedBox(height: 12),
                 
-                // 유효기간
-                ListTile(
-                  leading: const Icon(Icons.calendar_today),
-                  title: const Text('유효기간'),
-                  subtitle: Text(_formatDate(selectedDate)),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.edit_calendar),
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: selectedDate,
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                      );
-                      if (picked != null) {
-                        setState(() => selectedDate = picked);
+                // 만료일 설정 체크박스
+                CheckboxListTile(
+                  title: const Text('만료일 설정'),
+                  value: hasExpiration,
+                  onChanged: (value) {
+                    setState(() {
+                      hasExpiration = value ?? false;
+                      if (hasExpiration && coupon.expiresAt == null) {
+                        selectedDate = DateTime.now().add(const Duration(days: 30));
                       }
-                    },
-                  ),
+                    });
+                  },
                   contentPadding: EdgeInsets.zero,
                 ),
+                
+                // 유효기간 (만료일 설정이 켜져있을 때만 표시)
+                if (hasExpiration)
+                  ListTile(
+                    leading: const Icon(Icons.calendar_today),
+                    title: const Text('유효기간'),
+                    subtitle: Text(_formatDate(selectedDate)),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.edit_calendar),
+                      onPressed: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate,
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime.now().add(const Duration(days: 365)),
+                        );
+                        if (picked != null) {
+                          setState(() => selectedDate = picked);
+                        }
+                      },
+                    ),
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 
                 // 활성화 상태
                 SwitchListTile(
@@ -1014,7 +1033,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         bonusTickets: bonusTickets,
         description: description.isNotEmpty ? description : null,
         maxUses: maxUses,
-        expiresAt: selectedDate,
+        expiresAt: hasExpiration ? selectedDate : null,
         isActive: isActive,
       );
       

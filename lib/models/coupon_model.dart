@@ -2,26 +2,26 @@
 class Coupon {
   final String code;
   final int ticketReward; // 보상 티켓 개수
-  final DateTime expiresAt; // 만료 시간
+  final DateTime? expiresAt; // 만료 시간 (null이면 무기한)
   final bool isActive; // 활성화 상태
   final String? description; // 쿠폰 설명
 
   Coupon({
     required this.code,
     required this.ticketReward,
-    required this.expiresAt,
+    this.expiresAt,
     this.isActive = true,
     this.description,
   });
 
-  bool get isExpired => DateTime.now().isAfter(expiresAt);
+  bool get isExpired => expiresAt != null && DateTime.now().isAfter(expiresAt!);
   bool get isValid => isActive && !isExpired;
 
   factory Coupon.fromJson(Map<String, dynamic> json) {
     return Coupon(
       code: json['code'] as String,
       ticketReward: json['ticketReward'] as int,
-      expiresAt: DateTime.parse(json['expiresAt'] as String),
+      expiresAt: json['expiresAt'] != null ? DateTime.parse(json['expiresAt'] as String) : null,
       isActive: json['isActive'] as bool? ?? true,
       description: json['description'] as String?,
     );
@@ -31,7 +31,7 @@ class Coupon {
     return {
       'code': code,
       'ticketReward': ticketReward,
-      'expiresAt': expiresAt.toIso8601String(),
+      'expiresAt': expiresAt?.toIso8601String(),
       'isActive': isActive,
       'description': description,
     };

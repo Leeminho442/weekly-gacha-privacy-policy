@@ -708,7 +708,9 @@ class _CardDetailScrollViewState extends State<_CardDetailScrollView> {
   
   Future<void> _loadIssuedCount() async {
     try {
-      // Firestore에서 직접 조회
+      debugPrint('🔍 [CollectionScreen] Loading issued count for cardId: ${widget.group.cardId}');
+      
+      // 방법 1: card_stocks 컬렉션에서 currentSupply 확인
       final stockDoc = await FirebaseFirestore.instance
           .collection('card_stocks')
           .doc(widget.group.cardId)
@@ -717,38 +719,49 @@ class _CardDetailScrollViewState extends State<_CardDetailScrollView> {
       if (stockDoc.exists) {
         final data = stockDoc.data();
         final currentSupply = data?['currentSupply'] ?? 0;
-        debugPrint('🔍 [CollectionScreen] cardId: ${widget.group.cardId}, currentSupply from Firestore: $currentSupply');
+        debugPrint('✅ [CollectionScreen] Found stock document - currentSupply: $currentSupply');
         
         if (mounted) {
           setState(() {
             _issuedCount = currentSupply;
           });
         }
-      } else {
-        debugPrint('⚠️ [CollectionScreen] No stock document found for cardId: ${widget.group.cardId}');
-        // stock 문서가 없으면 실제 보유자 수를 세어봄
-        final ownedCardsQuery = await FirebaseFirestore.instance
-            .collectionGroup('owned_cards')
-            .where('cardId', isEqualTo: widget.group.cardId)
-            .get();
-        
-        final actualOwners = ownedCardsQuery.docs.length;
-        debugPrint('🔍 [CollectionScreen] Actual owners count: $actualOwners');
-        
+        return;
+      }
+      
+      debugPrint('⚠️ [CollectionScreen] No stock document found, counting actual owners...');
+      
+      // 방법 2: owned_cards collectionGroup으로 실제 보유자 수 계산
+      final ownedCardsQuery = await FirebaseFirestore.instance
+          .collectionGroup('owned_cards')
+          .where('cardId', isEqualTo: widget.group.cardId)
+          .get();
+      
+      final actualCount = ownedCardsQuery.docs.length;
+      debugPrint('✅ [CollectionScreen] Actual owners count from collectionGroup: $actualCount');
+      
+      if (mounted) {
+        setState(() {
+          _issuedCount = actualCount;
+        });
+      }
+      
+      // 방법 3 (Fallback): 현재 사용자의 보유 카드 수 (최소값)
+      if (actualCount == 0) {
+        debugPrint('⚠️ [CollectionScreen] CollectionGroup returned 0, using widget.group.cards length as fallback');
         if (mounted) {
           setState(() {
-            _issuedCount = actualOwners;
+            _issuedCount = widget.group.cards.length;
           });
         }
       }
+      
     } catch (e) {
       debugPrint('❌ [CollectionScreen] Error loading issued count: $e');
-      // 에러 발생 시 Provider fallback
+      // 에러 발생 시 현재 그룹의 카드 수를 표시 (최소값)
       if (mounted) {
-        final provider = Provider.of<GachaProvider>(context, listen: false);
-        final count = provider.getIssuedCardCount(widget.group.cardId);
         setState(() {
-          _issuedCount = count;
+          _issuedCount = widget.group.cards.length;
         });
       }
     }

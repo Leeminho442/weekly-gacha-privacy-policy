@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../providers/gacha_provider.dart';
 import '../services/season_service.dart';
 import '../services/admin_service.dart';
 import '../services/admob_service.dart';
 import '../services/audio_service.dart';
+import '../services/auth_service.dart';
 import 'card_pack_opening_screen.dart';
 import 'admin_dashboard_screen.dart';
-import 'admin_login_screen.dart';
 import 'coupon_screen.dart';
 import 'invite_screen.dart';
 
@@ -31,6 +31,11 @@ class _GachaScreenState extends State<GachaScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _showScrollIndicator = false;
   
+  // 보상형 광고 관련
+  int _dailyAdCount = 0;
+  static const int _maxDailyAds = 5;
+  String? _lastAdDate;
+  
   @override
   void initState() {
     super.initState();
@@ -38,6 +43,7 @@ class _GachaScreenState extends State<GachaScreen> {
     // 화면 로드 후 스크롤 가능 여부 체크
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkScrollable();
+      _loadAdCount();
     });
   }
   
@@ -68,6 +74,42 @@ class _GachaScreenState extends State<GachaScreen> {
         _showScrollIndicator = maxScroll > 0;
       });
     }
+  }
+  
+  // 광고 시청 횟수 로드
+  Future<void> _loadAdCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = DateTime.now().toString().substring(0, 10);
+    final savedDate = prefs.getString('last_ad_date') ?? '';
+    
+    if (savedDate == today) {
+      setState(() {
+        _dailyAdCount = prefs.getInt('daily_ad_count') ?? 0;
+        _lastAdDate = savedDate;
+      });
+    } else {
+      // 날짜가 바뀌면 초기화
+      setState(() {
+        _dailyAdCount = 0;
+        _lastAdDate = today;
+      });
+      await prefs.setString('last_ad_date', today);
+      await prefs.setInt('daily_ad_count', 0);
+    }
+  }
+  
+  // 광고 시청 횟수 증가
+  Future<void> _incrementAdCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = DateTime.now().toString().substring(0, 10);
+    
+    setState(() {
+      _dailyAdCount++;
+      _lastAdDate = today;
+    });
+    
+    await prefs.setString('last_ad_date', today);
+    await prefs.setInt('daily_ad_count', _dailyAdCount);
   }
 
   Future<String> _getSeasonInfo() async {
@@ -398,7 +440,10 @@ class _GachaScreenState extends State<GachaScreen> {
                                       
                                       if (shouldLogout == true && context.mounted) {
                                         try {
-                                          await FirebaseAuth.instance.signOut();
+                                          // AuthService를 사용하여 로그아웃 (Google Sign In 포함)
+                                          final authService = AuthService();
+                                          await authService.logout();
+                                          
                                           if (context.mounted) {
                                             Navigator.pushReplacementNamed(context, '/login');
                                           }
@@ -433,31 +478,72 @@ class _GachaScreenState extends State<GachaScreen> {
                                       ),
                                     ),
                                   ),
-                                  // 확률 정보 버튼
-                                  Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.9),
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.1),
-                                          blurRadius: 8,
-                                          spreadRadius: 1,
+                                  // 우측 버튼들
+                                  Row(
+                                    children: [
+                                      // 음소거 토글 버튼
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        margin: const EdgeInsets.only(right: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.9),
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(alpha: 0.1),
+                                              blurRadius: 8,
+                                              spreadRadius: 1,
+                                            ),
+                                          ],
                                         ),
-                                      ],
-                                    ),
-                                    child: IconButton(
-                                      icon: Icon(
-                                        Icons.help_outline,
-                                        color: Colors.purple.shade700,
-                                        size: 24,
+                                        child: IconButton(
+                                          icon: Icon(
+                                            AudioService().bgmEnabled || AudioService().sfxEnabled
+                                                ? Icons.volume_up
+                                                : Icons.volume_off,
+                                            color: Colors.purple.shade700,
+                                            size: 24,
+                                          ),
+                                          padding: EdgeInsets.zero,
+                                          onPressed: () {
+                                            setState(() {
+                                              // 둘 다 켜져있거나 하나라도 켜져있으면 모두 끄기
+                                              final shouldMute = AudioService().bgmEnabled || AudioService().sfxEnabled;
+                                              AudioService().toggleBGM(!shouldMute);
+                                              AudioService().toggleSFX(!shouldMute);
+                                            });
+                                          },
+                                          tooltip: '음소거',
+                                        ),
                                       ),
-                                      padding: EdgeInsets.zero,
-                                      onPressed: _showProbabilityInfo,
-                                      tooltip: '확률 정보',
-                                    ),
+                                      // 확률 정보 버튼
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.9),
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(alpha: 0.1),
+                                              blurRadius: 8,
+                                              spreadRadius: 1,
+                                            ),
+                                          ],
+                                        ),
+                                        child: IconButton(
+                                          icon: Icon(
+                                            Icons.help_outline,
+                                            color: Colors.purple.shade700,
+                                            size: 24,
+                                          ),
+                                          padding: EdgeInsets.zero,
+                                          onPressed: _showProbabilityInfo,
+                                          tooltip: '확률 정보',
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -494,53 +580,7 @@ class _GachaScreenState extends State<GachaScreen> {
                                   );
                                 },
                               ),
-                              const SizedBox(height: 10),
-                              // 오디오 토글 버튼 (BGM/SFX)
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.9),
-                                      borderRadius: BorderRadius.circular(15),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        // BGM 토글
-                                        _buildAudioToggle(
-                                          icon: AudioService().bgmEnabled ? Icons.music_note : Icons.music_off,
-                                          label: 'BGM',
-                                          onTap: () {
-                                            setState(() {
-                                              AudioService().toggleBGM(!AudioService().bgmEnabled);
-                                            });
-                                          },
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Container(
-                                          width: 1,
-                                          height: 20,
-                                          color: Colors.purple.shade200,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        // SFX 토글
-                                        _buildAudioToggle(
-                                          icon: AudioService().sfxEnabled ? Icons.volume_up : Icons.volume_off,
-                                          label: 'SFX',
-                                          onTap: () {
-                                            setState(() {
-                                              AudioService().toggleSFX(!AudioService().sfxEnabled);
-                                            });
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 20),
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 20,
@@ -732,34 +772,52 @@ class _GachaScreenState extends State<GachaScreen> {
                                 ],
                               ),
                               const SizedBox(height: 20),
-                              // Rewarded Ad Button (무료 뽑기 소진 시 표시)
-                              if (gachaProvider.dailyPulls == 0 && gachaProvider.bonusTickets == 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 15),
-                                  child: ElevatedButton.icon(
-                                    onPressed: () => _showRewardedAd(context, gachaProvider),
-                                    icon: const Icon(Icons.play_circle_filled, size: 24),
-                                    label: const Text(
-                                      '광고 보고 1회 무료 뽑기',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
+                              // Rewarded Ad Button (항상 표시, 하루 5회 제한)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 15),
+                                child: Column(
+                                  children: [
+                                    ElevatedButton.icon(
+                                      onPressed: _dailyAdCount < _maxDailyAds
+                                          ? () => _showRewardedAd(context, gachaProvider)
+                                          : null,
+                                      icon: const Icon(Icons.play_circle_filled, size: 24),
+                                      label: Text(
+                                        '광고 보고 티켓 받기 ($_dailyAdCount/$_maxDailyAds)',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: _dailyAdCount < _maxDailyAds
+                                            ? Colors.green.shade600
+                                            : Colors.grey.shade400,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 24,
+                                          vertical: 16,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        elevation: 8,
                                       ),
                                     ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green.shade600,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 24,
-                                        vertical: 16,
+                                    if (_dailyAdCount >= _maxDailyAds)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: Text(
+                                          '오늘의 광고 시청 횟수를 모두 사용했습니다',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
                                       ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      elevation: 8,
-                                    ),
-                                  ),
+                                  ],
                                 ),
+                              ),
                               // Pull Button
                               ElevatedButton(
                                 onPressed: gachaProvider.totalPulls > 0
@@ -963,6 +1021,9 @@ class _GachaScreenState extends State<GachaScreen> {
       if (context.mounted) {
         Navigator.pop(context); // 광고 시청 모달 닫기
         
+        // 광고 시청 횟수 증가
+        await _incrementAdCount();
+        
         // 보너스 티켓 1회 지급
         await gachaProvider.addBonusTickets(1);
         
@@ -976,7 +1037,7 @@ class _GachaScreenState extends State<GachaScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      '광고 시청 완료! 무료 뽑기 1회가 지급되었습니다.',
+                      '광고 시청 완료! 티켓 1회가 지급되었습니다. (오늘 $_dailyAdCount/$_maxDailyAds)',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -1027,6 +1088,8 @@ class _GachaScreenState extends State<GachaScreen> {
     // 보상형 광고 표시
     await adMobService.showRewardedAd(
       onUserEarnedReward: () async {
+        // 광고 시청 횟수 증가
+        await _incrementAdCount();
         // 보상 지급
         await gachaProvider.addBonusTickets(1);
       },
@@ -1041,7 +1104,7 @@ class _GachaScreenState extends State<GachaScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      '광고 시청 완료! 무료 뽑기 1회가 지급되었습니다.',
+                      '광고 시청 완료! 티켓 1회가 지급되었습니다. (오늘 $_dailyAdCount/$_maxDailyAds)',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),

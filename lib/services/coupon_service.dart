@@ -272,7 +272,7 @@ class CouponService {
           code: data['couponCode'] ?? doc.id,
           ticketReward: data['bonusTickets'] ?? 0,
           description: data['description'],
-          expiresAt: (data['expiresAt'] as Timestamp?)?.toDate() ?? DateTime.now().add(const Duration(days: 365)),
+          expiresAt: (data['expiresAt'] as Timestamp?)?.toDate(),
           isActive: data['isActive'] ?? true,
         );
       }).toList();
