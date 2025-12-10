@@ -129,8 +129,10 @@ class AuthService {
   // 로그아웃
   Future<void> logout() async {
     try {
-      // Google Sign Out
-      await _googleSignIn.signOut();
+      // Google Sign Out (모바일 환경에서만)
+      if (!kIsWeb) {
+        await _googleSignIn.signOut();
+      }
       
       // Firebase Sign Out
       await _auth.signOut();

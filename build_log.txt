@@ -1,0 +1,9 @@
+Running Gradle task 'bundleRelease'...                          
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 9576 bytes (99.4% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Caught exception: Already watching path: /home/user/flutter_app/android
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: /home/user/.pub-cache/hosted/pub.dev/google_mobile_ads-5.3.1/android/src/main/java/io/flutter/plugins/googlemobileads/AdMessageCodec.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Running Gradle task 'bundleRelease'...                            271.6s
+✓ Built build/app/outputs/bundle/release/app-release.aab (80.0MB)

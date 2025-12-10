@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'dart:math' as math;
 import '../providers/gacha_provider.dart';
 import '../services/season_service.dart';
 import '../services/admin_service.dart';
@@ -13,6 +14,7 @@ import 'card_pack_opening_screen.dart';
 import 'admin_dashboard_screen.dart';
 import 'coupon_screen.dart';
 import 'invite_screen.dart';
+import 'intro_screen.dart';
 
 class GachaScreen extends StatefulWidget {
   const GachaScreen({super.key});
@@ -21,7 +23,7 @@ class GachaScreen extends StatefulWidget {
   State<GachaScreen> createState() => _GachaScreenState();
 }
 
-class _GachaScreenState extends State<GachaScreen> {
+class _GachaScreenState extends State<GachaScreen> with TickerProviderStateMixin {
   int _logoTapCount = 0;
   DateTime? _lastTapTime;
   static const Duration _tapTimeWindow = Duration(seconds: 3);
@@ -36,10 +38,35 @@ class _GachaScreenState extends State<GachaScreen> {
   static const int _maxDailyAds = 5;
   String? _lastAdDate;
   
+  // 🎨 카드 배경 애니메이션 관련
+  late AnimationController _cardAnimationController;
+  late List<Animation<double>> _cardAnimations;
+  static const int _cardCount = 8;
+  
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_scrollListener);
+    
+    // 🎨 카드 배경 애니메이션 초기화
+    _cardAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 20),
+    )..repeat();
+    
+    _cardAnimations = List.generate(_cardCount, (index) {
+      return Tween<double>(begin: -0.2, end: 1.2).animate(
+        CurvedAnimation(
+          parent: _cardAnimationController,
+          curve: Interval(
+            index * 0.1,
+            0.8 + index * 0.1,
+            curve: Curves.linear,
+          ),
+        ),
+      );
+    });
+    
     // 화면 로드 후 스크롤 가능 여부 체크
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkScrollable();
@@ -51,6 +78,7 @@ class _GachaScreenState extends State<GachaScreen> {
   void dispose() {
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
+    _cardAnimationController.dispose(); // 🎨 애니메이션 컨트롤러 정리
     super.dispose();
   }
   
@@ -445,7 +473,12 @@ class _GachaScreenState extends State<GachaScreen> {
                                           await authService.logout();
                                           
                                           if (context.mounted) {
-                                            Navigator.pushReplacementNamed(context, '/login');
+                                            // IntroScreen으로 직접 이동
+                                            Navigator.pushAndRemoveUntil(
+                                              context,
+                                              MaterialPageRoute(builder: (context) => const IntroScreen()),
+                                              (route) => false,
+                                            );
                                           }
                                         } catch (e) {
                                           if (context.mounted) {
@@ -653,53 +686,164 @@ class _GachaScreenState extends State<GachaScreen> {
                           ),
                         ),
 
-                        // Center - Gacha Machine
+                        // Center - 가챠 뽑기 버튼 (메인)
                         Expanded(
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                // Gacha Machine Icon
-                                Container(
-                                  width: 200,
-                                  height: 200,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Colors.white,
-                                        Colors.pink.shade100,
-                                        Colors.purple.shade100,
+                          child: Stack(
+                            children: [
+                              // 🎨 배경 애니메이션 - 움직이는 카드 뒷면들
+                              AnimatedBuilder(
+                                animation: _cardAnimationController,
+                                builder: (context, child) {
+                                  return Stack(
+                                    children: List.generate(_cardCount, (index) {
+                                      final animation = _cardAnimations[index];
+                                      final progress = animation.value;
+                                      
+                                      // 다양한 각도와 위치
+                                      final angle = (index * 45.0) * 3.14159 / 180;
+                                      final offsetX = (index % 3 - 1) * 100.0;
+                                      
+                                      return Positioned(
+                                        left: MediaQuery.of(context).size.width * 0.5 + offsetX - 40,
+                                        top: MediaQuery.of(context).size.height * progress,
+                                        child: Transform.rotate(
+                                          angle: angle,
+                                          child: Opacity(
+                                            opacity: (progress > 0.1 && progress < 0.9) ? 0.15 : 0.0,
+                                            child: Container(
+                                              width: 80,
+                                              height: 120,
+                                              decoration: BoxDecoration(
+                                                color: Colors.purple.shade900,
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: Colors.amber.shade300,
+                                                  width: 2,
+                                                ),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.purple.withValues(alpha: 0.3),
+                                                    blurRadius: 15,
+                                                    spreadRadius: 3,
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Center(
+                                                child: Icon(
+                                                  Icons.auto_awesome,
+                                                  color: Colors.amber.shade200,
+                                                  size: 40,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                  );
+                                },
+                              ),
+                              
+                              // 메인 버튼 (앞에 배치)
+                              Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    // 가챠 뽑기 메인 버튼
+                                    GestureDetector(
+                                      onTap: gachaProvider.totalPulls > 0
+                                          ? () => _performGacha(context, gachaProvider)
+                                          : null,
+                                      child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 300),
+                                    width: 220,
+                                    height: 220,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient: LinearGradient(
+                                        colors: gachaProvider.totalPulls > 0
+                                            ? [
+                                                Colors.pink.shade300,
+                                                Colors.purple.shade400,
+                                                Colors.deepPurple.shade500,
+                                              ]
+                                            : [
+                                                Colors.grey.shade300,
+                                                Colors.grey.shade400,
+                                                Colors.grey.shade500,
+                                              ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      boxShadow: gachaProvider.totalPulls > 0
+                                          ? [
+                                              BoxShadow(
+                                                color: Colors.purple.withValues(alpha: 0.6),
+                                                blurRadius: 40,
+                                                spreadRadius: 15,
+                                              ),
+                                            ]
+                                          : [
+                                              BoxShadow(
+                                                color: Colors.grey.withValues(alpha: 0.3),
+                                                blurRadius: 20,
+                                                spreadRadius: 5,
+                                              ),
+                                            ],
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.card_giftcard,
+                                          size: 80,
+                                          color: Colors.white,
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          '가챠 뽑기',
+                                          style: TextStyle(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                            shadows: [
+                                              Shadow(
+                                                blurRadius: 10,
+                                                color: Colors.black.withValues(alpha: 0.5),
+                                                offset: const Offset(2, 2),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          gachaProvider.totalPulls > 0 ? '탭해서 뽑기!' : '티켓 없음',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.white.withValues(alpha: 0.9),
+                                          ),
+                                        ),
                                       ],
                                     ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.purple.withValues(alpha: 0.5),
-                                        blurRadius: 30,
-                                        spreadRadius: 10,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Icon(
-                                    Icons.card_giftcard,
-                                    size: 100,
-                                    color: Colors.purple.shade300,
                                   ),
                                 ),
                                 const SizedBox(height: 30),
                                 // Sparkles
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: const [
-                                    Icon(Icons.star, color: Colors.yellow, size: 30),
-                                    SizedBox(width: 10),
-                                    Icon(Icons.star, color: Colors.pink, size: 40),
-                                    SizedBox(width: 10),
-                                    Icon(Icons.star, color: Colors.yellow, size: 30),
-                                  ],
-                                ),
+                                if (gachaProvider.totalPulls > 0)
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: const [
+                                      Icon(Icons.star, color: Colors.yellow, size: 30),
+                                      SizedBox(width: 10),
+                                      Icon(Icons.star, color: Colors.pink, size: 40),
+                                      SizedBox(width: 10),
+                                      Icon(Icons.star, color: Colors.yellow, size: 30),
+                                    ],
+                                  ),
                               ],
                             ),
+                          ),
+                            ], // Stack 닫기 - 배경 애니메이션 + 메인 버튼
                           ),
                         ),
 
@@ -773,85 +917,30 @@ class _GachaScreenState extends State<GachaScreen> {
                               ),
                               const SizedBox(height: 20),
                               // Rewarded Ad Button (항상 표시, 하루 5회 제한)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 15),
-                                child: Column(
-                                  children: [
-                                    ElevatedButton.icon(
-                                      onPressed: _dailyAdCount < _maxDailyAds
-                                          ? () => _showRewardedAd(context, gachaProvider)
-                                          : null,
-                                      icon: const Icon(Icons.play_circle_filled, size: 24),
-                                      label: Text(
-                                        '광고 보고 티켓 받기 ($_dailyAdCount/$_maxDailyAds)',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: _dailyAdCount < _maxDailyAds
-                                            ? Colors.green.shade600
-                                            : Colors.grey.shade400,
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 24,
-                                          vertical: 16,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(20),
-                                        ),
-                                        elevation: 8,
-                                      ),
-                                    ),
-                                    if (_dailyAdCount >= _maxDailyAds)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 8),
-                                        child: Text(
-                                          '오늘의 광고 시청 횟수를 모두 사용했습니다',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              // Pull Button
-                              ElevatedButton(
-                                onPressed: gachaProvider.totalPulls > 0
-                                    ? () => _performGacha(context, gachaProvider)
+                              ElevatedButton.icon(
+                                onPressed: _dailyAdCount < _maxDailyAds
+                                    ? () => _showRewardedAd(context, gachaProvider)
                                     : null,
+                                icon: const Icon(Icons.play_circle_filled, size: 20),
+                                label: Text(
+                                  '광고 보고 티켓 받기 ($_dailyAdCount/$_maxDailyAds)',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.pink,
+                                  backgroundColor: _dailyAdCount < _maxDailyAds
+                                      ? Colors.green.shade600
+                                      : Colors.grey.shade400,
                                   foregroundColor: Colors.white,
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 50,
-                                    vertical: 20,
+                                    horizontal: 20,
+                                    vertical: 12,
                                   ),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  elevation: 10,
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.auto_awesome, size: 30),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      gachaProvider.totalPulls > 0
-                                          ? '갓챠 뽑기!'
-                                          : '내일 다시 오세요',
-                                      style: const TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    const Icon(Icons.auto_awesome, size: 30),
-                                  ],
                                 ),
                               ),
                             ],
@@ -928,7 +1017,7 @@ class _GachaScreenState extends State<GachaScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          'v2.7.1 - 로그아웃/오디오 기능 복원',
+                          'v2.7.5',
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.7),
                             fontSize: 10,

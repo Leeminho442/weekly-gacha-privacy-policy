@@ -261,12 +261,7 @@ class AICardGenerator:
         """
         단일 카드 이미지 생성 (Genspark AI 활용)
         
-        ⚠️ 중요: 실제 환경에서는 Genspark의 image_generation tool을 호출해야 합니다.
-        현재는 시뮬레이션으로 placeholder 반환합니다.
-        
-        실제 통합 시 아래 코드를 수정하세요:
-        - image_generation tool 직접 호출
-        - 또는 Genspark API REST 호출
+        실제 Genspark SDK를 사용하여 이미지 생성
         """
         
         prompt = self.build_image_prompt(
@@ -279,26 +274,41 @@ class AICardGenerator:
         print(f"   🎨 Generating: {card_concept['name']}")
         print(f"   📝 Prompt: {prompt[:80]}...")
         
-        # TODO: 실제 Genspark AI image_generation tool 호출
-        # 
-        # 예시 (실제 구현 필요):
-        # from genspark_tools import image_generation
-        # result = image_generation(
-        #     query=prompt,
-        #     model='recraft-v3',
-        #     aspect_ratio='1:1',
-        #     image_urls=[],
-        #     task_summary=f'Generate {card_concept["name"]} card'
-        # )
-        # return result['image_url']
-        
-        # 시뮬레이션: 1초 지연 후 placeholder 반환
-        time.sleep(1)
-        
-        # Placeholder 이미지 (실제로는 AI 생성 이미지 URL)
-        placeholder_url = f"https://via.placeholder.com/512x512/FF6B9D/FFFFFF?text={card_concept['name']}"
-        
-        return placeholder_url
+        try:
+            # ✅ 실제 Genspark SDK 사용
+            import asyncio
+            from genspark_sdk import GenSparkSDK
+            
+            async def generate_async():
+                async with GenSparkSDK(timeout=120.0, verbose=False) as client:
+                    result = await client.image_generation(
+                        query=prompt,
+                        model='recraft-v3',  # 빠르고 경제적 (512x512, $0.02)
+                        aspect_ratio='1:1',
+                        image_urls=[],
+                        task_summary=f'Generate Weekly Gacha card: {card_concept["name"]}'
+                    )
+                    return result
+            
+            # 동기 함수에서 async 함수 실행
+            result = asyncio.run(generate_async())
+            
+            # 결과에서 이미지 URL 추출
+            # Genspark SDK는 마크다운 형식으로 반환하므로 URL 파싱
+            import re
+            url_match = re.search(r'https?://[^\s\)]+', result)
+            if url_match:
+                image_url = url_match.group(0)
+                print(f"   ✅ Image generated: {image_url[:60]}...")
+                return image_url
+            else:
+                print(f"   ⚠️ Could not extract URL from result")
+                return None
+                
+        except Exception as e:
+            print(f"   ❌ Generation failed: {e}")
+            # 에러 발생 시 None 반환 (재시도 로직에서 처리)
+            return None
     
     def upload_to_firebase_storage(self, image_url: str, card_index: int) -> str:
         """Firebase Storage에 이미지 업로드"""

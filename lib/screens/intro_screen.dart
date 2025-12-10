@@ -345,10 +345,10 @@ class _IntroScreenState extends State<IntroScreen> with SingleTickerProviderStat
                                         : Row(
                                             mainAxisAlignment: MainAxisAlignment.center,
                                             children: [
-                                              const Icon(
-                                                Icons.g_mobiledata,
-                                                size: 32,
-                                                color: Colors.red,
+                                              Image.asset(
+                                                'assets/images/google_logo.png',
+                                                width: 24,
+                                                height: 24,
                                               ),
                                               const SizedBox(width: 12),
                                               Text(
