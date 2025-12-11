@@ -849,7 +849,7 @@ class _GachaScreenState extends State<GachaScreen> with TickerProviderStateMixin
 
                         // Bottom - Pull Button
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(30, 30, 30, 100), // 배너 광고 위에 버튼이 보이도록 충분한 여백 (배너 50 + 여유 50)
+                          padding: const EdgeInsets.fromLTRB(30, 30, 30, 200), // 배너 광고 위에 버튼이 보이도록 충분한 여백 확대
                           child: Column(
                             children: [
                               // Coupon & Invite Buttons
@@ -1017,7 +1017,7 @@ class _GachaScreenState extends State<GachaScreen> with TickerProviderStateMixin
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          'v2.7.5',
+                          'v2.7.9',
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.7),
                             fontSize: 10,
