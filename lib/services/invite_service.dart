@@ -37,8 +37,8 @@ class InviteService {
       return userDoc.data()!['inviteCode'];
     }
 
-    // 초대 코드 생성 (사용자 ID 앞 8자리 + 랜덤 4자리)
-    final code = '${userId.substring(0, 8)}_${DateTime.now().millisecondsSinceEpoch % 10000}';
+    // 초대 코드 생성 (사용자 ID 기반 6자리 영숫자)
+    final code = _generateShortCode(userId);
 
     // Firestore에 저장 (set with merge: true로 문서가 없어도 생성 가능)
     await _firestore.collection('users').doc(userId).set({
@@ -161,5 +161,25 @@ class InviteService {
       print('초대 친구 목록 조회 오류: $e');
       return [];
     }
+  }
+
+  /// 6자리 영숫자 초대 코드 생성 (사용자 ID 기반 해시)
+  String _generateShortCode(String userId) {
+    // 사용자 ID의 hashCode를 사용하여 6자리 영숫자 생성
+    final hash = userId.hashCode.abs();
+    final timestamp = DateTime.now().millisecondsSinceEpoch % 100000;
+    final combined = (hash + timestamp) % 2176782336; // 36^6 = 2176782336
+    
+    // 36진수로 변환 (0-9, a-z)
+    String code = combined.toRadixString(36).toUpperCase();
+    
+    // 정확히 6자리로 맞추기
+    if (code.length < 6) {
+      code = code.padLeft(6, '0');
+    } else if (code.length > 6) {
+      code = code.substring(0, 6);
+    }
+    
+    return code;
   }
 }

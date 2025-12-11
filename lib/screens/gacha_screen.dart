@@ -1017,7 +1017,7 @@ class _GachaScreenState extends State<GachaScreen> with TickerProviderStateMixin
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          'v2.7.9',
+                          'v2.8.0',
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.7),
                             fontSize: 10,
