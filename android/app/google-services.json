@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "664327874488-dqiboab6cmsoivl3261c2djltjei3gn4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mycompany.weeklygacha",
+            "certificate_hash": "d0446bfb20052c5b7430d1487a843df337210a6d"
+          }
+        },
+        {
           "client_id": "664327874488-kibd36jqh1e5fse8b3250u6geeebj2ef.apps.googleusercontent.com",
           "client_type": 3
         }
