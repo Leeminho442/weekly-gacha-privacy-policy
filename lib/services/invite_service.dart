@@ -91,8 +91,11 @@ class InviteService {
       }
 
       if (inviterQuery.docs.isEmpty) {
+        print('❌ 초대 코드를 찾을 수 없음: $normalizedCode');
         return false; // 유효하지 않은 초대 코드
       }
+      
+      print('✅ 초대 코드 찾음: $normalizedCode');
 
       final inviterDoc = inviterQuery.docs.first;
       final inviterId = inviterDoc.id;
@@ -105,30 +108,48 @@ class InviteService {
       // 이미 초대 보상을 받았는지 확인
       final currentUserDoc = await _firestore.collection('users').doc(currentUserId).get();
       if (currentUserDoc.exists && currentUserDoc.data()?['invitedBy'] != null) {
+        print('❌ 이미 초대 보상을 받은 사용자');
         return false; // 이미 초대 보상을 받음
       }
 
       // Firestore 트랜잭션으로 보상 지급
       await _firestore.runTransaction((transaction) async {
-        // 초대받은 사용자에게 보상 (3 티켓)
-        transaction.update(_firestore.collection('users').doc(currentUserId), {
-          'bonusTickets': FieldValue.increment(3),
+        // ✅ 초대받은 사용자 문서 읽기
+        final currentUserRef = _firestore.collection('users').doc(currentUserId);
+        final currentUserSnapshot = await transaction.get(currentUserRef);
+        
+        // ✅ 초대한 사용자 문서 읽기
+        final inviterRef = _firestore.collection('users').doc(inviterId);
+        final inviterSnapshot = await transaction.get(inviterRef);
+        
+        // 초대받은 사용자에게 보상 (3 티켓) - set with merge 사용
+        final currentUserData = currentUserSnapshot.data() ?? {};
+        final currentBonusTickets = currentUserData['bonusTickets'] ?? 0;
+        
+        transaction.set(currentUserRef, {
+          'bonusTickets': currentBonusTickets + 3,
           'invitedBy': inviterId,
           'invitedAt': FieldValue.serverTimestamp(),
-        });
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
-        // 초대한 사용자에게 보상 (3 티켓)
-        transaction.update(_firestore.collection('users').doc(inviterId), {
-          'bonusTickets': FieldValue.increment(3),
-          'inviteCount': FieldValue.increment(1),
-        });
+        // 초대한 사용자에게 보상 (3 티켓) - set with merge 사용
+        final inviterData = inviterSnapshot.data() ?? {};
+        final inviterBonusTickets = inviterData['bonusTickets'] ?? 0;
+        final inviterCount = inviterData['inviteCount'] ?? 0;
+        
+        transaction.set(inviterRef, {
+          'bonusTickets': inviterBonusTickets + 3,
+          'inviteCount': inviterCount + 1,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
         // 초대 기록 저장
         final inviteRecordRef = _firestore.collection('invites').doc();
         transaction.set(inviteRecordRef, {
           'inviterId': inviterId,
           'inviteeId': currentUserId,
-          'inviteCode': inviteCode,
+          'inviteCode': normalizedCode,
           'reward': 3,
           'createdAt': FieldValue.serverTimestamp(),
         });
