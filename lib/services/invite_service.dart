@@ -67,12 +67,28 @@ class InviteService {
     if (currentUserId == null) return false;
 
     try {
-      // 초대한 사용자 찾기
-      final inviterQuery = await _firestore
+      // ✅ 대소문자 통일 및 공백 제거
+      final normalizedCode = inviteCode.trim().toUpperCase();
+      
+      if (normalizedCode.isEmpty || normalizedCode.length != 6) {
+        return false; // 잘못된 형식
+      }
+      
+      // 초대한 사용자 찾기 (대문자 버전으로 검색)
+      var inviterQuery = await _firestore
           .collection('users')
-          .where('inviteCode', isEqualTo: inviteCode)
+          .where('inviteCode', isEqualTo: normalizedCode)
           .limit(1)
           .get();
+
+      // ✅ 대문자로 찾지 못했다면 소문자로 재시도
+      if (inviterQuery.docs.isEmpty) {
+        inviterQuery = await _firestore
+            .collection('users')
+            .where('inviteCode', isEqualTo: normalizedCode.toLowerCase())
+            .limit(1)
+            .get();
+      }
 
       if (inviterQuery.docs.isEmpty) {
         return false; // 유효하지 않은 초대 코드
