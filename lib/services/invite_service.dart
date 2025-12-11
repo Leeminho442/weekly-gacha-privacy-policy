@@ -15,7 +15,7 @@ class InviteService {
     }
 
     // 초대 링크 생성 (앱 URL + 추천인 코드)
-    final inviteCode = await _getOrCreateInviteCode();
+    final inviteCode = await getOrCreateInviteCode();
     final appUrl = 'https://5060-i61kwlwbk8dftys816r2r-a402f90a.sandbox.novita.ai';
     final inviteLink = '$appUrl?ref=$inviteCode';
 
@@ -29,7 +29,7 @@ class InviteService {
   }
 
   /// 사용자의 고유 초대 코드 가져오기 또는 생성
-  Future<String> _getOrCreateInviteCode() async {
+  Future<String> getOrCreateInviteCode() async {
     final userId = currentUserId!;
     final userDoc = await _firestore.collection('users').doc(userId).get();
 
@@ -40,11 +40,11 @@ class InviteService {
     // 초대 코드 생성 (사용자 ID 앞 8자리 + 랜덤 4자리)
     final code = '${userId.substring(0, 8)}_${DateTime.now().millisecondsSinceEpoch % 10000}';
 
-    // Firestore에 저장
-    await _firestore.collection('users').doc(userId).update({
+    // Firestore에 저장 (set with merge: true로 문서가 없어도 생성 가능)
+    await _firestore.collection('users').doc(userId).set({
       'inviteCode': code,
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
 
     return code;
   }
@@ -121,7 +121,12 @@ class InviteService {
     try {
       final userDoc = await _firestore.collection('users').doc(currentUserId).get();
       final inviteCount = userDoc.data()?['inviteCount'] ?? 0;
-      final inviteCode = userDoc.data()?['inviteCode'] ?? '';
+      
+      // 초대 코드가 없으면 자동 생성
+      String inviteCode = userDoc.data()?['inviteCode'] ?? '';
+      if (inviteCode.isEmpty) {
+        inviteCode = await getOrCreateInviteCode();
+      }
 
       return {
         'inviteCount': inviteCount,
