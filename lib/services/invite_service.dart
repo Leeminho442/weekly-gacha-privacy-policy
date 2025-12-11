@@ -33,8 +33,21 @@ class InviteService {
     final userId = currentUserId!;
     final userDoc = await _firestore.collection('users').doc(userId).get();
 
+    // 기존 초대 코드 확인
     if (userDoc.exists && userDoc.data()?['inviteCode'] != null) {
-      return userDoc.data()!['inviteCode'];
+      final existingCode = userDoc.data()!['inviteCode'];
+      
+      // ✅ 초대 코드가 6자리가 아니면 재생성 (버그 수정)
+      if (existingCode.length != 6) {
+        final newCode = _generateShortCode(userId);
+        await _firestore.collection('users').doc(userId).update({
+          'inviteCode': newCode,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return newCode;
+      }
+      
+      return existingCode;
     }
 
     // 초대 코드 생성 (사용자 ID 기반 6자리 영숫자)
