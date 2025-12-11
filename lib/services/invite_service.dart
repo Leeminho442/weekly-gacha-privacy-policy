@@ -63,54 +63,72 @@ class InviteService {
   }
 
   /// 초대 코드로 가입 처리 (신규 사용자용)
-  Future<bool> processInviteCode(String inviteCode) async {
-    if (currentUserId == null) return false;
+  /// 반환값: {'success': bool, 'message': String}
+  Future<Map<String, dynamic>> processInviteCodeWithMessage(String inviteCode) async {
+    if (currentUserId == null) {
+      return {'success': false, 'message': '로그인이 필요합니다'};
+    }
 
     try {
       // ✅ 대소문자 통일 및 공백 제거
       final normalizedCode = inviteCode.trim().toUpperCase();
       
       if (normalizedCode.isEmpty || normalizedCode.length != 6) {
-        return false; // 잘못된 형식
+        print('❌ 잘못된 초대 코드 형식: $inviteCode');
+        return {'success': false, 'message': '초대 코드는 6자리여야 합니다'};
       }
       
-      // 초대한 사용자 찾기 (대문자 버전으로 검색)
-      var inviterQuery = await _firestore
-          .collection('users')
-          .where('inviteCode', isEqualTo: normalizedCode)
-          .limit(1)
-          .get();
-
-      // ✅ 대문자로 찾지 못했다면 소문자로 재시도
-      if (inviterQuery.docs.isEmpty) {
-        inviterQuery = await _firestore
-            .collection('users')
-            .where('inviteCode', isEqualTo: normalizedCode.toLowerCase())
-            .limit(1)
-            .get();
+      // ✅ 모든 사용자의 초대 코드를 메모리에서 검색 (대소문자 무시)
+      print('🔍 초대 코드 검색 시작: $normalizedCode');
+      final allUsers = await _firestore.collection('users').get();
+      print('📊 총 사용자 수: ${allUsers.docs.length}');
+      
+      // 디버깅: 모든 초대 코드 출력
+      final allCodes = <String>[];
+      for (var doc in allUsers.docs) {
+        final data = doc.data();
+        if (data != null && data['inviteCode'] != null) {
+          allCodes.add('${data['inviteCode']}');
+        }
+      }
+      print('💡 등록된 모든 초대 코드: $allCodes');
+      
+      DocumentSnapshot? inviterDoc;
+      for (var doc in allUsers.docs) {
+        final data = doc.data();
+        if (data == null) continue;
+        final code = data['inviteCode'] as String?;
+        print('  검사 중: $code vs $normalizedCode');
+        if (code != null && code.toUpperCase() == normalizedCode) {
+          inviterDoc = doc;
+          print('✅ 초대 코드 찾음: $code (정규화: $normalizedCode)');
+          break;
+        }
       }
 
-      if (inviterQuery.docs.isEmpty) {
+      if (inviterDoc == null) {
         print('❌ 초대 코드를 찾을 수 없음: $normalizedCode');
-        return false; // 유효하지 않은 초대 코드
+        print('🔍 총 ${allCodes.length}개의 코드 확인 완료');
+        return {'success': false, 'message': '유효하지 않은 초대 코드입니다. ($normalizedCode)'};
       }
-      
-      print('✅ 초대 코드 찾음: $normalizedCode');
 
-      final inviterDoc = inviterQuery.docs.first;
       final inviterId = inviterDoc.id;
+      print('🎯 초대한 사용자 ID: $inviterId, 현재 사용자 ID: $currentUserId');
 
       // 자기 자신을 초대할 수 없음
       if (inviterId == currentUserId) {
-        return false;
+        print('❌ 자기 자신의 초대 코드는 사용할 수 없습니다');
+        return {'success': false, 'message': '자신의 초대 코드는 사용할 수 없습니다'};
       }
 
       // 이미 초대 보상을 받았는지 확인
       final currentUserDoc = await _firestore.collection('users').doc(currentUserId).get();
-      if (currentUserDoc.exists && currentUserDoc.data()?['invitedBy'] != null) {
-        print('❌ 이미 초대 보상을 받은 사용자');
-        return false; // 이미 초대 보상을 받음
+      final invitedBy = currentUserDoc.data()?['invitedBy'];
+      if (currentUserDoc.exists && invitedBy != null) {
+        print('❌ 이미 초대 보상을 받은 사용자 (invitedBy: $invitedBy)');
+        return {'success': false, 'message': '이미 초대 코드를 사용하셨습니다. (1회만 가능)'};
       }
+      print('✅ 초대 보상 지급 시작...');
 
       // Firestore 트랜잭션으로 보상 지급
       await _firestore.runTransaction((transaction) async {
@@ -155,11 +173,19 @@ class InviteService {
         });
       });
 
-      return true;
+      print('✅ 초대 보상 지급 성공!');
+      return {'success': true, 'message': '초대 코드가 성공적으로 적용되었습니다!\n보너스 티켓 3장이 지급되었습니다'};
     } catch (e) {
-      print('초대 코드 처리 오류: $e');
-      return false;
+      print('❌ 초대 코드 처리 오류: $e');
+      print('오류 상세: ${e.toString()}');
+      return {'success': false, 'message': '초대 코드 처리 중 오류가 발생했습니다'};
     }
+  }
+
+  /// 초대 코드로 가입 처리 (호환성을 위한 래퍼)
+  Future<bool> processInviteCode(String inviteCode) async {
+    final result = await processInviteCodeWithMessage(inviteCode);
+    return result['success'] as bool;
   }
 
   /// 초대 통계 조회

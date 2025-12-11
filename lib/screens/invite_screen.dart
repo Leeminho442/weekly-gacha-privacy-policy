@@ -70,7 +70,9 @@ class _InviteScreenState extends State<InviteScreen> with SingleTickerProviderSt
     });
 
     try {
-      final success = await _inviteService.processInviteCode(code);
+      final result = await _inviteService.processInviteCodeWithMessage(code);
+      final success = result['success'] as bool;
+      final message = result['message'] as String;
       
       if (success) {
         // Provider 데이터 새로고침
@@ -78,13 +80,13 @@ class _InviteScreenState extends State<InviteScreen> with SingleTickerProviderSt
         await gachaProvider.refreshUserData();
         
         _inviteCodeController.clear();
-        _showMessage('초대 코드가 성공적으로 적용되었습니다!\n보너스 티켓 3장이 지급되었습니다.', isError: false);
+        _showMessage(message, isError: false);
         await _loadData();
       } else {
-        _showMessage('유효하지 않은 초대 코드입니다.', isError: true);
+        _showMessage(message, isError: true);
       }
     } catch (e) {
-      _showMessage('초대 코드 처리 중 오류가 발생했습니다.', isError: true);
+      _showMessage('초대 코드 처리 중 오류가 발생했습니다.\n$e', isError: true);
     } finally {
       setState(() {
         _isLoading = false;
