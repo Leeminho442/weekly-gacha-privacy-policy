@@ -170,14 +170,14 @@ class InviteService {
     final timestamp = DateTime.now().millisecondsSinceEpoch % 100000;
     final combined = (hash + timestamp) % 2176782336; // 36^6 = 2176782336
     
-    // 36진수로 변환 (0-9, a-z)
+    // 36진수로 변환하여 정확히 6자리로 만들기
     String code = combined.toRadixString(36).toUpperCase();
     
-    // 정확히 6자리로 맞추기
+    // 6자리로 패딩하거나 자르기
     if (code.length < 6) {
       code = code.padLeft(6, '0');
     } else if (code.length > 6) {
-      code = code.substring(0, 6);
+      code = code.substring(code.length - 6); // 뒤에서 6자리 추출
     }
     
     return code;
